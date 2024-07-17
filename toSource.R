@@ -1,7 +1,20 @@
 '%=%' = function(l, r, ...) UseMethod('%=%')
 
-# Binary Operator
+#' %=%.lbunch
+#' 
+#' Given two Grouping objects, copies each item from the list of
+#' r into the list in l 
+#' 
+#' @param l: the Grouping object to be set 
+#' @param r: the Grouping object to get from 
+#' @param ... 
+#'
+#' @return none
+#' @export
+#'
+#' @examples
 '%=%.lbunch' = function(l, r, ...) {
+  
   Envir = as.environment(-1)
   
   if (length(r) > length(l))
@@ -17,7 +30,23 @@
   }
 }
 
-# Used if LHS is larger than RHS
+
+#' extendToMatch
+#' 
+#' Used if LHS(destin) is larger than RHS(source). If the destin argument
+#' is a length 1 Grouping object, assume that the only item in the 
+#' Grouping object's list is its length. The function returns a 
+#' repeated version of source of length equal to length(destin) or destin
+#' 
+#' @param source: a Grouping object to get from
+#' @param destin: a Grouping object to set 
+#'
+#' @return source: a altered version of the source Grouping object 
+#'                 such that the lengths of the underlying lists match
+#'
+#' @export
+#'
+#' @examples
 extendToMatch <- function(source, destin) {
   s <- length(source)
   d <- length(destin)
@@ -33,14 +62,55 @@ extendToMatch <- function(source, destin) {
   return (source)
 }
 
-# Grouping the left hand side
+#' g() 
+#'
+#' Constructor for the Grouping/lbunch class used throughout. 
+#' Assigns to List a list containing all the function arguments
+#' except for the first one.
+#'
+#' @param ... 
+#'
+#' @return List
+#' @export
+#'
+#' @examples
 g = function(...) {
   List = as.list(substitute(list(...)))[-1L]
   class(List) = 'lbunch'
   return(List)
+  
 }
 
 
+#' series_df
+#' 
+#' Takes in observed covariates, observed outcomes, and
+#' kernel basis + degrees of freedom. Returns the predicted Y 
+#' on the missing covariates using the regression supplied as 'type'.
+#' FW-learner algorithm is implemented with the sherman inverse.
+#' type: 
+#'    'ls' = least squares, 
+#'    'forster' = FW-learner 
+#' ("type=forster") basis_type:
+#'    'ns' = natural cubic spline of df = df,
+#'    'bs' = B-spline of df = df,
+#'    'poly' = orthogonal polynomial basis of degree = df
+#'    
+#'
+#' @param X: (n,1) vector of covariates for full data (L1)
+#' @param Y: (n,1) vector of responses  
+#' @param x_pred: (m,1) vector of covariates for missing data (L2)  
+#' @param df: the degrees of freedom for the natural cubic spline basis,
+#'            Note: knots = k = df − 1
+#' @param type: method of optimization. 
+#' @param basis_type: basis function defining the vector space optimized over
+#' @param std: if true, returns the standard deviation = 
+#'            sqrt(x_pred%*%inv %*%t(x_pred ))*sd(Y) 
+#'
+#' @return the (m,1) predicted response vector Y^* on x_pred. 
+#' @export
+#'
+#' @examples
 series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE){
     or = order(X)
     X = X[or]
@@ -69,17 +139,17 @@ series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE)
     y_train = Y
     inv = ginv(t(x_train)%*%x_train)
     if(std==TRUE){
-    std = sqrt(x_pred%*%inv %*%t(x_pred ))*sd(Y)
-    
-    if (type == "ls"){
-      coef = inv %*% t(x_train) %*% y_train
-      return (list(y_pred = x_pred %*% coef, sd))
-    }else if(type == "forster"){
-      sherman_inv = function(x) inv - inv%*% x%*%t(x)%*%inv/ as.numeric(1+ t(x)%*%inv%*%x)
-      weight_hn = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%x )
-      latter = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%t(x_train) %*% y_train)
-      return (list(as.numeric( 1- weight_hn ) * latter, std))
-    }else{print("Type not supported--please input either ls or forster estimator!")}
+      std = sqrt(x_pred%*%inv %*%t(x_pred ))*sd(Y)
+      
+      if (type == "ls"){
+        coef = inv %*% t(x_train) %*% y_train
+        return (list(y_pred = x_pred %*% coef, sd))
+      }else if(type == "forster"){
+        sherman_inv = function(x) inv - inv%*% x%*%t(x)%*%inv/ as.numeric(1+ t(x)%*%inv%*%x)
+        weight_hn = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%x )
+        latter = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%t(x_train) %*% y_train)
+        return (list(as.numeric( 1- weight_hn ) * latter, std))
+      }else{print("Type not supported--please input either ls or forster estimator!")}
     }else{
       if (type == "ls"){
         coef = inv %*% t(x_train) %*% y_train
@@ -93,9 +163,38 @@ series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE)
     }
 }
 
+#' series_cv_new
+#' 
+#' Method for finding optimal degrees of freedom argument(df) 
+#' for the FW learner for a given set of covariates, responses,
+#' missing data, and basis_type. Uses cross validation on KK 
+#' iterations on n/log(n) sample points from n
+#' 
+#'
+#' @param X: (n,1) vector of covariates
+#' @param Y: (n,1) vector of responses
+#' @param x_pred: (m,1) vector of covariates for missing data 
+#' @param type: type supplied to series_df 
+#' @param basis_type: basis_type supplies to series_df
+#' @param KK: Number of iterations to run cross validation
+#' @param df: df supplied to series_df 
+#' @param std: std supplied to series_df 
+#' @param df_grid: vector of df values to check. 
+#'
+#' @return List(final_est, estimator_list,D_list): 
+#'         final_est: the mean estimator_list
+#'         estimator_list: the predicted values from series_df for 
+#'                         each split with the minimum MSE across all 
+#'                         df in df_grid  
+#'         D_list: list of the df in df_grid corresponding to the predicted
+#'                 values in estimator_list for split k < KK
+#' @export
+#'
+#' @examples
 series_cv_new = function(X,Y,x_pred, type = "forster", basis_type = "poly", KK=1, df = NULL, std=FALSE, df_grid = NULL){
     if (is.null(std)){std=FALSE}
-  if (!(is.null(df))){
+  
+    if (!(is.null(df))){
       return (series_df(X,Y,x_pred, df = df, type = type, basis_type = basis_type, std=std))
     }
     n = length(X) 
@@ -127,6 +226,30 @@ series_cv_new = function(X,Y,x_pred, type = "forster", basis_type = "poly", KK=1
   }
 
 # nonparametric RKHS fitted DR estimator for CATE through Cross-fitting
+#' CF_cate
+#'  
+#' CATE Estimator of the form (7) in the paper. Is doubly robust and 
+#' is estimated using a cross fitting procedure
+#' 
+#' @param data:  dataframe containing columns X,Z,W,A,Y
+#' @param kernel_sigma_h: sigma parameter for the radial basis kernel on h
+#' @param kernel_sigma_q: sigma parameter for the radial basis kernel on q
+#' @param lm_Hh1 
+#' @param lm_Qh1 
+#' @param lm_Hh0 
+#' @param lm_Qh0 
+#' @param lm_Hq1 
+#' @param lm_Qq1 
+#' @param lm_Hq0 
+#' @param lm_Qq0 
+#' @param CF_K_fold: number of folds to split data into for cross validation 
+#' @param eval_data: if supplied, then use this as the evaluation(full data) set for cross validation
+#' @param center 
+#'
+#' @return list(DR_IF, DR_est, sqrt(sum(DR_IF^2)))
+#' @export
+#'
+#' @examples
 CF_cate <- function(data, kernel_sigma_h, kernel_sigma_q, lm_Hh1, lm_Qh1, lm_Hh0, lm_Qh0, lm_Hq1, lm_Qq1, lm_Hq0, lm_Qq0, CF_K_fold, eval_data=NULL, center=FALSE){
   n_sample <- length(data$Y)
   working_data <- with(data, list(X = X, Z = Z, W = W, A = A, Y = Y))
