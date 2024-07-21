@@ -37,19 +37,25 @@ for (rate in rateseq){
   for (i in 1:nsim){
     if(i %%100==0){print(i)}
     s <- sort(rep(1:4,n/4));
-    x <- (runif(n,-1,1));
-    ps <- 0.1 + 0.8*(x>0)
     
-    # Instrumental Variable
-    z <-
-      
+    
+    # Measured covariate
+    x <- (runif(n,-1,1));
+    # unmeasured confounder
+    u <- rnorm(n,sd=(.2-.1*cos(2*pi)))
+    # IV
+    z <- rbinom(n,1,prob = 0.5)
+    ps <- 0.1 + 0.5*(x>0) + 0.2*z + 0.1*(u>0)
+    a <- rbinom(n,1,ps);
+   
     mu0 <- (x <= -.5)*0.5*(x+2)^2 + (x/2+0.875)*(x>-1/2 & x<0) +
-      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125);
+      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) ;
     mu1 <- mu0;
     tau <- 0
-    a <- rbinom(n,1,ps);
-    y <- a*mu1 + (1-a)*mu0 + rnorm(n,sd=(.2-.1*cos(2*pi*x)))
-
+    
+    # outcome
+    y <- a*mu1 + (1-a)*mu0 + u
+    
     ## estimate nuisance functions
     
     pihat <- expit( logit(ps) + rnorm(n,mean=1/(n/4)^rate,sd=1/(n/4)^rate))
@@ -118,6 +124,8 @@ for (rate in rateseq){
 ```{r}
 
 ```
+
+
 
 ```{r}
 
