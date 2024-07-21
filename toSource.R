@@ -228,20 +228,19 @@ series_cv_new = function(X,Y,x_pred, type = "forster", basis_type = "poly", KK=1
 # nonparametric RKHS fitted DR estimator for CATE through Cross-fitting
 #' CF_cate
 #'  
-#' CATE Estimator of the form (7) in the paper. Is doubly robust and 
-#' is estimated using a cross fitting procedure
+#' Used to generate pseudo-outcomes for the proximal causal inference setting 
 #' 
 #' @param data:  dataframe containing columns X,Z,W,A,Y
-#' @param kernel_sigma_h: sigma parameter for the radial basis kernel on h
-#' @param kernel_sigma_q: sigma parameter for the radial basis kernel on q
-#' @param lm_Hh1 
-#' @param lm_Qh1 
-#' @param lm_Hh0 
-#' @param lm_Qh0 
-#' @param lm_Hq1 
-#' @param lm_Qq1 
-#' @param lm_Hq0 
-#' @param lm_Qq0 
+#' @param kernel_sigma_h: sigma parameter for the radial basis kernel for the h functions
+#' @param kernel_sigma_q: sigma parameter for the radial basis kernel for the q functions
+#' @param lm_Hh1: 
+#' @param lm_Qh1:  
+#' @param lm_Hh0:  
+#' @param lm_Qh0:  
+#' @param lm_Hq1:  
+#' @param lm_Qq1:  
+#' @param lm_Hq0:  
+#' @param lm_Qq0:  
 #' @param CF_K_fold: number of folds to split data into for cross validation 
 #' @param eval_data: if supplied, then use this as the evaluation(full data) set for cross validation
 #' @param center 
