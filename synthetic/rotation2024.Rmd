@@ -44,9 +44,12 @@ for (rate in rateseq){
     # unmeasured confounder
     u <- rnorm(n,sd=(.2-.1*cos(2*pi)))
     # IV
-    z <- rbinom(n,1,prob = 0.5)
+    z <- rbinom(n,1,prob = 0.8)
     ps <- 0.1 + 0.5*(x>0) + 0.2*z + 0.1*(u>0)
     a <- rbinom(n,1,ps);
+    # alt: positivity assumption
+    # ps <- (0.1 + 0.7*(x>0) + 0.2*(u>0))
+    # a <- rbinom(n,1,ps)*z 
    
     mu0 <- (x <= -.5)*0.5*(x+2)^2 + (x/2+0.875)*(x>-1/2 & x<0) +
       (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) ;
@@ -55,13 +58,26 @@ for (rate in rateseq){
     
     # outcome
     y <- a*mu1 + (1-a)*mu0 + u
-    
+
     ## estimate nuisance functions
     
-    pihat <- expit( logit(ps) + rnorm(n,mean=1/(n/4)^rate,sd=1/(n/4)^rate))
+    # pihat <- expit( logit(ps) + rnorm(n,mean=1/(n/4)^rate,sd=1/(n/4)^rate))
+    # 
+    # mu1hat <- predict(smooth.spline(x[a==1 & s==2],y[a==1 & s==2]),x)$y
+    # mu0hat <- predict(smooth.spline(x[a==0 & s==2],y[a==0 & s==2]),x)$y
     
-    mu1hat <- predict(smooth.spline(x[a==1 & s==2],y[a==1 & s==2]),x)$y
-    mu0hat <- predict(smooth.spline(x[a==0 & s==2],y[a==0 & s==2]),x)$y
+    ## IV nuissance functions
+    pi1hat <- predict(glm(a[z==1,s==2] ~ x[z==1,s==2]),x)$y
+    pi0hat <- predict(glm(a[z==0,s==2] ~ x[z==0,s==2]),x)$y
+    mu1hat <- predict(smooth.spline(x[z==1 & s==2],y[z==1 & s==2]),x)$y
+    mu0hat <- predict(smooth.spline(x[z==0 & s==2],y[z==0 & s==2]),x)$y
+    
+    betahat <- (mu1hat-mu0hat)/(pi1hat - pi0hat)
+    deltahat <- (pi1hat - pi0hat)
+    
+    # no idea what f is 
+    pseudoIV <- (2*z - 1)/f(x) * (y - a*betahat - mu0hat + pi0hat*betahat)/deltahat + betahat
+    
     
     ## construct estimators
     
@@ -122,7 +138,8 @@ for (rate in rateseq){
 ```
 
 ```{r}
-
+mean(y[z==1])
+mean(y[z==0])
 ```
 
 
