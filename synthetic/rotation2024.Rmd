@@ -42,23 +42,26 @@ for (rate in rateseq){
     # Measured covariate
     x <- (runif(n,-1,1));
     # unmeasured confounder
-    u <- rnorm(n,sd=(.2-.1*cos(2*pi)))
-    # IV
+    u <- rnorm(n,sd=(0.1))
+    # IV:
+    # Restriction: Independence from U
     z <- rbinom(n,1,prob = 0.8)
-    # ps <- 0.1 + 0.5*(x>0) + 0.2*z + 0.1*(u>0)
-    # a <- rbinom(n,1,ps);
+    # treatment variable: 
+    # Restrictions: IV relevance
+    ps <- expit(2*x + 5*z + 1*u)
+    a <- rbinom(n,1,ps);
 
-    # alt: positivity assumption
-    ps <- (0.1 + 0.7*(x>0) + 0.2*(u>0))
-    a <- rbinom(n,1,ps)*z
-
+    
+    #Restrictions: Exclusion restriction and no A,U interaction.
+    error <- rnorm(n,sd=0.01)
     mu0 <- (x <= -.5)*0.5*(x+2)^2 + (x/2+0.875)*(x>-1/2 & x<0) +
-      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) ;
+      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) - 0.5*u + error;
     mu1 <- mu0;
     tau <- 0
     
     # outcome
-    y <- a*mu1 + (1-a)*mu0 + u
+    # under assumption 4.a) no A by U interaction
+    y <- 
 
     ## estimate nuisance functions
     
@@ -68,6 +71,7 @@ for (rate in rateseq){
     # mu0hat <- predict(smooth.spline(x[a==0 & s==2],y[a==0 & s==2]),x)$y
     
     ## IV nuissance functions
+    # want to emphasize ability to use non-parametric nuissance functions  
     EA1hat <- predict(glm(a[z==1] ~ x[z==1]),x)$y
     EA0hat <- predict(glm(a[z==0] ~ x[z==0]),x)$y
     EY1hat <- predict(smooth.spline(x[z==1],y[z==1]),x)$y
