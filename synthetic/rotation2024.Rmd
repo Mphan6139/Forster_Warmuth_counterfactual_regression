@@ -40,9 +40,9 @@ for (rate in rateseq){
     
     
     # Measured covariate
-    x <- (runif(n,-1,1));
+    x <- runif(n,-1,1)
     # unmeasured confounder
-    u <- rnorm(n,sd=(0.1))
+    u <- rbinom(n,1,prob = 0.3)
     # IV:
     # Restriction: Independence from U
     z <- rbinom(n,1,prob = 0.8)
@@ -53,15 +53,19 @@ for (rate in rateseq){
 
     
     #Restrictions: Exclusion restriction and no A,U interaction.
-    error <- rnorm(n,sd=0.01)
-    mu0 <- (x <= -.5)*0.5*(x+2)^2 + (x/2+0.875)*(x>-1/2 & x<0) +
-      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) - 0.5*u + error;
+    error <- rnorm(n,sd=1)
+    p_2 <- function(x,a){
+      f = (x <= -.5)*0.5*(x+2)^2 + (x/2+0.875)*(x>-1/2 & x<0) +
+      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) 
+      return(f) 
+    }
+    mu0 <- p_2(x,a) + 0.01*u ;
     mu1 <- mu0;
     tau <- 0
     
     # outcome
     # under assumption 4.a) no A by U interaction
-    y <- 
+    y <- mu0 + 0.1*error
 
     ## estimate nuisance functions
     
@@ -72,16 +76,21 @@ for (rate in rateseq){
     
     ## IV nuissance functions
     # want to emphasize ability to use non-parametric nuissance functions  
-    EA1hat <- predict(glm(a[z==1] ~ x[z==1]),x)$y
-    EA0hat <- predict(glm(a[z==0] ~ x[z==0]),x)$y
+    EA1hat <- predict(glm(a[z==1] ~ x[z==1]),x)$a
+    EA0hat <- predict(glm(a[z==0] ~ x[z==0]),x)$a
     EY1hat <- predict(smooth.spline(x[z==1],y[z==1]),x)$y
     EY0hat <- predict(smooth.spline(x[z==0],y[z==0]),x)$y
     
     betahat <- (EY1hat-EY0hat)/(EA1hat - EA0hat)
     deltahat <- (EA1hat - EA0hat)
     
-    # no idea what f is 
-    pseudoIV <- (2*z - 1)/f(x) * (y - a*betahat - EY0hat + EA0hat*betahat)/deltahat + betahat
+    
+    
+    f_z <-  predict(glm(z ~ ns(x)))
+    
+    # f is the density estimate for z given x
+    # idea: use a KDE
+    pseudoIV <- (2*z - 1)/f_z * (y - a*betahat - EY0hat + EA0hat*betahat)/deltahat + betahat
     
     
     ## construct estimators
