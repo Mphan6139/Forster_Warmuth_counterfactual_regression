@@ -130,9 +130,12 @@ series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE)
       x_pred = matrix(poly(x_pred, df,raw = TRUE),nrow = ll)
     } else if (basis_type == "bs") {
       x_train = bs(X, df = 4, knots = df)
+      # x_train = bs(X, df = 4)
       x_pred[ll+1] = min(X)
-    x_pred[ll+2] = max(X)
+      x_pred[ll+2] = max(X)
       x_pred = matrix(bs(x_pred, df = 4, knots = df)[1:ll,], nrow = ll)
+      # x_pred = matrix(bs(x_pred, df = 4)[1:ll,], nrow = ll)
+    
     } else {
       print("Basis type not supported: please use either bs, ns or poly")
     }

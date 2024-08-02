@@ -38,7 +38,6 @@ for (rate in rateseq){
     if(i %%100==0){print(i)}
     s <- sort(rep(1:4,n/4));
     
-    
     # Measured covariate
     x <- runif(n,-1,1)
     # unmeasured confounder
@@ -56,17 +55,18 @@ for (rate in rateseq){
     error <- rnorm(n,sd=1)
     p_2 <- function(x,a){
       f = (x <= -.5)*0.5*(x+2)^2 + (x/2+0.875)*(x>-1/2 & x<0) +
-      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) 
+      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125)
       return(f) 
     }
-    mu0 <- p_2(x,a) + 0.01*u ;
+    mu0 <- p_2(x,a) + 0.01*u;
     mu1 <- mu0;
-    tau <- 0
-    
+    tau <- 1
     # outcome
     # under assumption 4.a) no A by U interaction
-    y <- mu0 + 0.1*error
+    y <- mu0 + error
 
+    
+    df <- data.frame(X=x,Y=y,Z=z,A=a)
     ## estimate nuisance functions
     
     # pihat <- expit( logit(ps) + rnorm(n,mean=1/(n/4)^rate,sd=1/(n/4)^rate))
@@ -76,21 +76,65 @@ for (rate in rateseq){
     
     ## IV nuissance functions
     # want to emphasize ability to use non-parametric nuissance functions  
-    EA1hat <- predict(glm(a[z==1] ~ x[z==1]),x)$a
-    EA0hat <- predict(glm(a[z==0] ~ x[z==0]),x)$a
-    EY1hat <- predict(smooth.spline(x[z==1],y[z==1]),x)$y
-    EY0hat <- predict(smooth.spline(x[z==0],y[z==0]),x)$y
+    
+    df_z1 = df
+    df_z1$Z = c(1)
+    df_z0 = df
+    df_z0$Z = c(0)
+    
+    
+    #sanity check: do them seperately     
+    EA1hat <- predict(glm(A ~ ns(X + Z),data = df,family = binomial()), newdata= df_z1,type = "response")
+    
+    EA0hat <- predict(glm(A ~ ns(X + Z),data = df,family = binomial()), newdata= df_z0,type = "response")
+    
+    EY1hat <- predict(smooth.spline(df$X[df$Z==1] , df$Y[df$Z==1]),x)$y
+    
+    EY0hat <- predict(smooth.spline(df$X[df$Z==0] , df$Y[df$Z==0]),x)$y
+    
+    df$A1hat = EA1hat
+    df$A0hat = EA0hat
+    df$Y1hat = EY1hat
+    df$Y0hat = EY0hat
+    
+    ggplot(df, aes(X)) + 
+    geom_line(aes(y = Y1hat, colour = "Y1hat")) + 
+    geom_line(aes(y = Y0hat, colour = "Y0hat"))
     
     betahat <- (EY1hat-EY0hat)/(EA1hat - EA0hat)
     deltahat <- (EA1hat - EA0hat)
     
     
+    # f is the density estimate for z given x. Under our model, this is constant and independent of X
+    f_z <- 0.8*z + 0.2*(1-z)
     
-    f_z <-  predict(glm(z ~ ns(x)))
+    # make sure to corss fit. 1 sample for nuissance, 1 for FW
     
-    # f is the density estimate for z given x
-    # idea: use a KDE
+    
+
     pseudoIV <- (2*z - 1)/f_z * (y - a*betahat - EY0hat + EA0hat*betahat)/deltahat + betahat
+    df$PsudoO = pseudoIV 
+    
+    
+    N = length(df$Y)
+    n = floor(N/2)
+    index_train = sample(N,n)
+   
+
+    # do we need both IV and Covariate?
+    tau_forster_bs = series_cv_new( as.matrix(df[index_train,c("X")]),pseudoIV[index_train],as.matrix(df[-index_train,c("X")]),  type = "forster", basis_type = "bs", KK=5)
+    
+
+    # tau_forster_bs = series_cv_new(x[index_train],pseudoIV[index_train],x[-index_train],  type = "forster", basis_type = "bs", KK=5)
+    tau_forster_bs
+    #
+    # Note: issue found. When playing around with simulation and running FW learner with splines,
+    # Most of the time it will output 0 estimate when given only X 
+    
+    
+    
+    
+    
     
     
     ## construct estimators
