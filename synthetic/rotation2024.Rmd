@@ -122,9 +122,15 @@ for (rate in rateseq){
    
 
     # do we need both IV and Covariate?
-    tau_forster_bs = series_cv_new( as.matrix(df[index_train,c("X")]),pseudoIV[index_train],as.matrix(df[-index_train,c("X")]),  type = "forster", basis_type = "bs", KK=5)
+    # tau_forster_bs = series_cv_new( as.matrix(df[index_train,c("X")]),pseudoIV[index_train],as.matrix(df[-index_train,c("X")]),  type = "forster", basis_type = "bs", KK=5)
     
+    head(pseudoIV,n=100)
 
+    CATE = series_df(as.matrix(df[index_train,c("X")]),as.matrix(df[index_train,c("PsudoO")]),as.matrix(df[-index_train,c("X")]),df=4, type = "ls", basis_type = "poly", std=FALSE)
+    mean(CATE$y_pred)
+    
+    
+    
     # tau_forster_bs = series_cv_new(x[index_train],pseudoIV[index_train],x[-index_train],  type = "forster", basis_type = "bs", KK=5)
     tau_forster_bs
     #
