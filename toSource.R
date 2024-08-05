@@ -112,55 +112,55 @@ g = function(...) {
 #'
 #' @examples
 series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE){
-    or = order(X)
-    X = X[or]
-    Y = Y[or]
-    ll = length(x_pred)
-    x_pred = sort(x_pred)
-
+  or = order(X)
+  X = X[or]
+  Y = Y[or]
+  ll = length(x_pred)
+  x_pred = sort(x_pred)
+  
+  
+  if (basis_type == "ns") {
+    x_train = ns(X, df )
+    x_pred[ll+1] = min(X)
+    x_pred[ll+2] = max(X)
+    x_pred = matrix(ns(x_pred, df )[1:ll,], nrow = ll)
     
-    if (basis_type == "ns") {
-      x_train = ns(X, df )
-      x_pred[ll+1] = min(X)
-      x_pred[ll+2] = max(X)
-      x_pred = matrix(ns(x_pred, df )[1:ll,], nrow = ll)
-
-    } else if (basis_type == "poly") {
-      x_train = poly(X, df,raw = TRUE)
-      x_pred = matrix(poly(x_pred, df,raw = TRUE),nrow = ll)
-    } else if (basis_type == "bs") {
-      x_train = bs(X, df = 4, knots = df)
-      x_pred[ll+1] = min(X)
-      x_pred[ll+2] = max(X)
-      x_pred = matrix(bs(x_pred, df = 4, knots = df)[1:ll,], nrow = ll)
-    } else {
-      print("Basis type not supported: please use either bs, ns or poly")
-    }
-    y_train = Y
-    inv = ginv(t(x_train)%*%x_train)
-    if(std==TRUE){
-      std = sqrt(x_pred%*%inv %*%t(x_pred ))*sd(Y)
-      
-      if (type == "ls"){
-        coef = inv %*% t(x_train) %*% y_train
-        return (list(y_pred = x_pred %*% coef, sd))
-      }else if(type == "forster"){
-        sherman_inv = function(x) inv - inv%*% x%*%t(x)%*%inv/ as.numeric(1+ t(x)%*%inv%*%x)
-        weight_hn = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%x )
-        latter = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%t(x_train) %*% y_train)
-        return (list(as.numeric( 1- weight_hn ) * latter, std))
-      }else{print("Type not supported--please input either ls or forster estimator!")}
-    }else{
-      if (type == "ls"){
-        coef = inv %*% t(x_train) %*% y_train
-        return (list(y_pred = x_pred %*% coef))
-      }else if(type == "forster"){
-        sherman_inv = function(x) inv - inv%*% x%*%t(x)%*%inv/ as.numeric(1+ t(x)%*%inv%*%x)
-        weight_hn = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%x )
-        latter = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%t(x_train) %*% y_train)
-        return (list(as.numeric( 1- weight_hn ) * latter))
-      }else{print("Type not supported--please input either ls or forster estimator!")}
-    }
+  } else if (basis_type == "poly") {
+    x_train = poly(X, df,raw = TRUE)
+    x_pred = matrix(poly(x_pred, df,raw = TRUE),nrow = ll)
+  } else if (basis_type == "bs") {
+    x_train = bs(X, df = 4, knots = df)
+    x_pred[ll+1] = min(X)
+    x_pred[ll+2] = max(X)
+    x_pred = matrix(bs(x_pred, df = 4, knots = df)[1:ll,], nrow = ll)
+  } else {
+    print("Basis type not supported: please use either bs, ns or poly")
+  }
+  y_train = Y
+  inv = ginv(t(x_train)%*%x_train)
+  if(std==TRUE){
+    std = sqrt(x_pred%*%inv %*%t(x_pred ))*sd(Y)
+    
+    if (type == "ls"){
+      coef = inv %*% t(x_train) %*% y_train
+      return (list(y_pred = x_pred %*% coef, sd))
+    }else if(type == "forster"){
+      sherman_inv = function(x) inv - inv%*% x%*%t(x)%*%inv/ as.numeric(1+ t(x)%*%inv%*%x)
+      weight_hn = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%x )
+      latter = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%t(x_train) %*% y_train)
+      return (list(as.numeric( 1- weight_hn ) * latter, std))
+    }else{print("Type not supported--please input either ls or forster estimator!")}
+  }else{
+    if (type == "ls"){
+      coef = inv %*% t(x_train) %*% y_train
+      return (list(y_pred = x_pred %*% coef))
+    }else if(type == "forster"){
+      sherman_inv = function(x) inv - inv%*% x%*%t(x)%*%inv/ as.numeric(1+ t(x)%*%inv%*%x)
+      weight_hn = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%x )
+      latter = apply(x_pred, 1, function(x) t(x)%*%sherman_inv(x)%*%t(x_train) %*% y_train)
+      return (list(as.numeric( 1- weight_hn ) * latter))
+    }else{print("Type not supported--please input either ls or forster estimator!")}
+  }
 }
 
 #' series_cv_new
@@ -192,38 +192,37 @@ series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE)
 #'
 #' @examples
 series_cv_new = function(X,Y,x_pred, type = "forster", basis_type = "poly", KK=1, df = NULL, std=FALSE, df_grid = NULL){
-    if (is.null(std)){std=FALSE}
-  
-    if (!(is.null(df))){
-      return (series_df(X,Y,x_pred, df = df, type = type, basis_type = basis_type, std=std))
-    }
-    n = length(X) 
-    s_test = floor(n/log(n))
-    if (is.null(df_grid)){
+  if (is.null(std)){std=FALSE}
+  if (!(is.null(df))){
+    return (series_df(X,Y,x_pred, df = df, type = type, basis_type = basis_type, std=std))
+  }
+  n = length(X) 
+  s_test = floor(n/log(n))
+  if (is.null(df_grid)){
     df_grid = seq(4,18, by = 2)
     if (basis_type == "bs"){df_grid = seq(50,200, by = 15)}
-    }
-    l = length(df_grid)
-    mse_grid_cv = matrix(NA,l, KK)
-    estimator_list = D_list = rep(NA,KK)
-    for (k in seq(KK)){
-      cat(paste0(k,"/", KK,' '))
-      ind_test = sample(1:n, size = s_test) 
-      
-      g(train_X, train_Y) %=% list(X[-ind_test],  Y[-ind_test])
-      g(test_X, test_Y) %=% list(X[ind_test],  Y[ind_test])
-      for (i in 1:l){
-        df_temp = df_grid[i]
-        temp =  series_df(X = train_X, Y=train_Y, x_pred = test_X, df = df_temp ,type = type, basis_type = basis_type,std=std)[[1]]
-        mse_grid_cv[i,k] = mean((temp - test_Y)^2)
-      }
-      ind = which(mse_grid_cv[,k]==min(mse_grid_cv[,k]))[1]
-      D_list[k] = df_grid[ind]
-      estimator_list[k] =  series_df(X = X, Y=Y, x_pred = x_pred, df = D_list[k] ,type = type, basis_type = basis_type,std=std)[[1]]
-    }  
-    
-    return (list(final_est = mean(estimator_list), estimator_list = estimator_list, D_list = D_list))
   }
+  l = length(df_grid)
+  mse_grid_cv = matrix(NA,l, KK)
+  estimator_list = D_list = rep(NA,KK)
+  for (k in seq(KK)){
+    cat(paste0(k,"/", KK,' '))
+    ind_test = sample(1:n, size = s_test) 
+    
+    g(train_X, train_Y) %=% list(X[-ind_test],  Y[-ind_test])
+    g(test_X, test_Y) %=% list(X[ind_test],  Y[ind_test])
+    for (i in 1:l){
+      df_temp = df_grid[i]
+      temp =  series_df(X = train_X, Y=train_Y, x_pred = test_X, df = df_temp ,type = type, basis_type = basis_type,std=std)[[1]]
+      mse_grid_cv[i,k] = mean((temp - test_Y)^2)
+    }
+    ind = which(mse_grid_cv[,k]==min(mse_grid_cv[,k]))[1]
+    D_list[k] = df_grid[ind]
+    estimator_list[k] =  series_df(X = X, Y=Y, x_pred = x_pred, df = D_list[k] ,type = type, basis_type = basis_type,std=std)[[1]]
+  }  
+  
+  return (list(final_est = mean(estimator_list), estimator_list = estimator_list, D_list = D_list))
+}
 
 # nonparametric RKHS fitted DR estimator for CATE through Cross-fitting
 #' CF_cate

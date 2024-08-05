@@ -42,21 +42,22 @@ for (i in 1:nsim){
   z <- rbinom(n,1,prob = 0.8)
   # treatment variable: 
   # Restrictions: IV relevance
-  ps <- expit(2*x + 5*z + 4*u)
+  ps <- expit(x + z + 4*u)
   a <- rbinom(n,1,ps);
 
   
   #Restrictions: Exclusion restriction and no A,U interaction.
   error <- rnorm(n,sd=1)
   p_2 <- function(x,a,u){
-    f_x = (x <= -.5)*0.5*(x+2)^2 + (x/2+0.875)*(x>-1/2 & x<0) +
+    f_x = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<0)*(x/2+0.875) +
     (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) 
-    return(f_x + 3*a + u) 
+    return(f_x + 2*x*u + a + u) 
   }
   
   mu0 <- p_2(x,rep(0,n),u);
   mu1 <- p_2(x,rep(1,n),u);
-  tau <- mean(mu1-mu0)
+  cate <- mu1-mu0
+  tau <- mean(cate)
   # outcome
   # under assumption 4.a) no A by U interaction
   y <- p_2(x,a,u) + error
@@ -73,14 +74,12 @@ for (i in 1:nsim){
  
   
   po_fitter <- function(sub_df){
-    df_z1 = sub_df[sub_df$Z==1,]
-    df_z0 = sub_df[sub_df$Z==0,]
     ## estimate nuisance functions
     # want to emphasize ability to use non-parametric nuissance functions  
 
   
-    model_A1 = glm(A ~ ns(X),data = df_z1,family = binomial())
-    model_A0 = glm(A ~ ns(X),data = df_z0,family = binomial())
+    model_A1 = glm(A ~ ns(X),data = sub_df[sub_df$Z==1,],family = binomial())
+    model_A0 = glm(A ~ ns(X),data = sub_df[sub_df$Z==0,],family = binomial())
     
     EA1hat <- predict(model_A1,newdata = sub_df,type = "response")
     EA0hat <- predict(model_A0,newdata = sub_df,type = "response")
@@ -126,6 +125,7 @@ for (i in 1:nsim){
   
   
   m_A1 = glm(A ~ ns(X),data = df[df$Z==1,],family = binomial())
+  summary(m_A1)
   m_A0 = glm(A ~ ns(X),data = df[df$Z==0,],family = binomial())
   p_EA1hat <- predict(m_A1,newdata = df,type = "response")
   p_EA0hat <- predict(m_A0,newdata = df,type = "response")
