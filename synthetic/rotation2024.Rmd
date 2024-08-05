@@ -13,202 +13,185 @@ library(latex2exp)
 source('..//toSource.R')
 
 
-D = 4
 
 expit <- function(x){ exp(x)/(1+exp(x)) };
 
 logit <- function(x){ log(x/(1-x)) }
 
-n <- 4*2000; nsim <- 500;
+# n <- 4*2000; 
+n_vec <- seq(from=2000,to=8000,by=500)
+nsim <- length(n_vec);
 
-rateseq <- seq(0.1,0.5,by=0.05);
-
-
-cate_hat <- res2 <- NULL
 set.seed(1)
-for (rate in rateseq){
+cate_hat_mat <- data.frame(matrix(nrow=nsim,ncol=7))
+res <- data.frame(matrix(nrow=nsim,ncol=7))
+colnames(cate_hat_mat) =colnames(res)= c("plugin","forster_poly","forster_ns","forster_bs", "forster_poly_cross","forster_ns_cross","forster_bs_cross")
+res$N = n_vec
+cate_hat_mat$N = n_vec
+for (i in 1:nsim){
+  n = n_vec[i]
+  s <- sort(rep(1:2,n/2));
   
-  print(rate)
   
-  cate_hat_mat <- data.frame(matrix(nrow=nsim,ncol=14))
-  colnames(cate_hat_mat) <- c("plugin","xl","drl","drl_poly","oracle.drl","bs","ns","poly","forster_poly","forster_ns", "ls_poly","ls_ns", "forster_bs", "ls_bs")
-  res <- data.frame(matrix(nrow=nsim,ncol=14))
-  colnames(res) <- c("plugin","xl","drl","drl_poly","oracle.drl","bs","ns","poly","forster_poly","forster_ns", "ls_poly","ls_ns", "forster_bs", "ls_bs")
-  for (i in 1:nsim){
-    if(i %%100==0){print(i)}
-    s <- sort(rep(1:4,n/4));
-    
-    # Measured covariate
-    x <- runif(n,-1,1)
-    # unmeasured confounder
-    u <- rbinom(n,1,prob = 0.3)
-    # IV:
-    # Restriction: Independence from U
-    z <- rbinom(n,1,prob = 0.8)
-    # treatment variable: 
-    # Restrictions: IV relevance
-    ps <- expit(2*x + 5*z + 1*u)
-    a <- rbinom(n,1,ps);
+  # Measured covariate
+  x <- runif(n,-1,1)
+  # unmeasured confounder
+  u <- rnorm(n,sd=1)
+  # IV:
+  # Restriction: Independence from U
+  z <- rbinom(n,1,prob = 0.8)
+  # treatment variable: 
+  # Restrictions: IV relevance
+  ps <- expit(2*x + 5*z + 4*u)
+  a <- rbinom(n,1,ps);
 
-    
-    #Restrictions: Exclusion restriction and no A,U interaction.
-    error <- rnorm(n,sd=1)
-    p_2 <- function(x,a){
-      f = (x <= -.5)*0.5*(x+2)^2 + (x/2+0.875)*(x>-1/2 & x<0) +
-      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125)
-      return(f) 
-    }
-    mu0 <- p_2(x,a) + 0.01*u;
-    mu1 <- mu0;
-    tau <- 1
-    # outcome
-    # under assumption 4.a) no A by U interaction
-    y <- mu0 + error
+  
+  #Restrictions: Exclusion restriction and no A,U interaction.
+  error <- rnorm(n,sd=1)
+  p_2 <- function(x,a,u){
+    f_x = (x <= -.5)*0.5*(x+2)^2 + (x/2+0.875)*(x>-1/2 & x<0) +
+    (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) 
+    return(f_x + 3*a + u) 
+  }
+  
+  mu0 <- p_2(x,rep(0,n),u);
+  mu1 <- p_2(x,rep(1,n),u);
+  tau <- mean(mu1-mu0)
+  # outcome
+  # under assumption 4.a) no A by U interaction
+  y <- p_2(x,a,u) + error
 
-    
-    df <- data.frame(X=x,Y=y,Z=z,A=a)
+  
+  df <- data.frame(X=x,Y=y,Z=z,A=a, S= s)
+
+  # function for cross fitting 1 and 2
+  
+  
+ 
+  I_1 <- df[df$S==1,]
+  I_2 <- df[df$S==2,]
+ 
+  
+  po_fitter <- function(sub_df){
+    df_z1 = sub_df[sub_df$Z==1,]
+    df_z0 = sub_df[sub_df$Z==0,]
     ## estimate nuisance functions
-    
-    # pihat <- expit( logit(ps) + rnorm(n,mean=1/(n/4)^rate,sd=1/(n/4)^rate))
-    # 
-    # mu1hat <- predict(smooth.spline(x[a==1 & s==2],y[a==1 & s==2]),x)$y
-    # mu0hat <- predict(smooth.spline(x[a==0 & s==2],y[a==0 & s==2]),x)$y
-    
-    ## IV nuissance functions
     # want to emphasize ability to use non-parametric nuissance functions  
+
+  
+    model_A1 = glm(A ~ ns(X),data = df_z1,family = binomial())
+    model_A0 = glm(A ~ ns(X),data = df_z0,family = binomial())
     
-    df_z1 = df
-    df_z1$Z = c(1)
-    df_z0 = df
-    df_z0$Z = c(0)
-    
-    
-    #sanity check: do them seperately     
-    EA1hat <- predict(glm(A ~ ns(X + Z),data = df,family = binomial()), newdata= df_z1,type = "response")
-    
-    EA0hat <- predict(glm(A ~ ns(X + Z),data = df,family = binomial()), newdata= df_z0,type = "response")
-    
-    EY1hat <- predict(smooth.spline(df$X[df$Z==1] , df$Y[df$Z==1]),x)$y
-    
-    EY0hat <- predict(smooth.spline(df$X[df$Z==0] , df$Y[df$Z==0]),x)$y
-    
-    df$A1hat = EA1hat
-    df$A0hat = EA0hat
-    df$Y1hat = EY1hat
-    df$Y0hat = EY0hat
-    
-    ggplot(df, aes(X)) + 
-    geom_line(aes(y = Y1hat, colour = "Y1hat")) + 
-    geom_line(aes(y = Y0hat, colour = "Y0hat"))
+    EA1hat <- predict(model_A1,newdata = sub_df,type = "response")
+    EA0hat <- predict(model_A0,newdata = sub_df,type = "response")
+    EY1hat <- predict(smooth.spline(sub_df$X[sub_df$Z==1] , sub_df$Y[sub_df$Z==1]),sub_df$X)$y
+    EY0hat <- predict(smooth.spline(sub_df$X[sub_df$Z==0] , sub_df$Y[sub_df$Z==0]),sub_df$X)$y
     
     betahat <- (EY1hat-EY0hat)/(EA1hat - EA0hat)
     deltahat <- (EA1hat - EA0hat)
-    
-    
-    # f is the density estimate for z given x. Under our model, this is constant and independent of X
-    f_z <- 0.8*z + 0.2*(1-z)
-    
-    # make sure to corss fit. 1 sample for nuissance, 1 for FW
-    
-    
-
-    pseudoIV <- (2*z - 1)/f_z * (y - a*betahat - EY0hat + EA0hat*betahat)/deltahat + betahat
-    df$PsudoO = pseudoIV 
-    
-    
-    N = length(df$Y)
-    n = floor(N/2)
-    index_train = sample(N,n)
-   
-
-    # do we need both IV and Covariate?
-    # tau_forster_bs = series_cv_new( as.matrix(df[index_train,c("X")]),pseudoIV[index_train],as.matrix(df[-index_train,c("X")]),  type = "forster", basis_type = "bs", KK=5)
-    
-    head(pseudoIV,n=100)
-
-    CATE = series_df(as.matrix(df[index_train,c("X")]),as.matrix(df[index_train,c("PsudoO")]),as.matrix(df[-index_train,c("X")]),df=4, type = "ls", basis_type = "poly", std=FALSE)
-    mean(CATE$y_pred)
-    
-    
-    
-    # tau_forster_bs = series_cv_new(x[index_train],pseudoIV[index_train],x[-index_train],  type = "forster", basis_type = "bs", KK=5)
-    tau_forster_bs
-    #
-    # Note: issue found. When playing around with simulation and running FW learner with splines,
-    # Most of the time it will output 0 estimate when given only X 
-    
-    
-    
-    
-    
-    
-    
-    ## construct estimators
-    
-    # plugin <- mu1hat-mu0hat
-    # 
-    # x1 <- predict(smooth.spline(x[a==1 & s==3],(y-mu0hat)[a==1 & s==3]),x)$y
-    # x0 <- predict(smooth.spline(x[a==0 & s==3],(mu1hat-y)[a==0 & s==3]),x)$y
-    # xl <- pihat*x0 + (1-pihat)*x1
-    # 
-    # pseudo <- ((a-pihat)/(pihat*(1-pihat)))*(y-a*mu1hat-(1-a)*mu0hat) + mu1hat-mu0hat
-    # drl <- predict(smooth.spline(x[s==3],pseudo[s==3]),x)$y
-    # 
-    # 
-    # 
-    # tau_forster_poly = series_df(x[s==3], pseudo[s==3], x[s==4],df=D, type = "forster", basis_type = "poly")
-    # tau_forster_ns = series_df(x[s==3], pseudo[s==3], x[s==4],df=D, type = "forster", basis_type = "ns")
-    # tau_forster_bs = series_df(x[s==3], pseudo[s==3], x[s==4],df=D, type = "forster", basis_type = "bs")
-    # 
-    # tau_ls_poly = series_df(x[s==3], pseudo[s==3], x[s==4], df=D, type = "ls", basis_type = "poly")
-    # tau_ls_ns = series_df(x[s==3], pseudo[s==3], x[s==4], df=D, type = "ls", basis_type = "ns")
-    # tau_ls_bs = series_df(x[s==3], pseudo[s==3], x[s==4], df=D, type = "ls", basis_type = "bs")
-    # 
-    # 
-    # pseudo.or <- ((a-ps)/(ps*(1-ps)))*(y-a*mu1-(1-a)*mu0) + mu1-mu0
-    # oracle.drl <- predict(smooth.spline(x[s==3],pseudo.or[s==3]),x)$y
-    # ## save MSEs
-    # res$plugin[i] <- (n/4)*mean((plugin-tau)[s==4]^2)
-    # res$xl[i] <- (n/4)*mean((xl-tau)[s==4]^2)
-    # res$drl[i] <- (n/4)*mean((drl-tau)[s==4]^2)
-    # #res$drl_poly[i] <- (n/4)*mean((drl_hat_poly-tau)[s==4]^2)       
-    # #res$drl_ns[i] <- (n/4)*mean((drl_hat_ns-tau)[s==4]^2)
-    # res$oracle.drl[i] <- (n/4)*mean((oracle.drl-tau)[s==4]^2)
-    # res$forster_poly[i] <- (n/4)*mean((tau_forster_poly[[1]]-tau)^2)
-    # res$forster_ns[i] <- (n/4)*mean((tau_forster_ns[[1]]-tau)^2)
-    # res$forster_bs[i] <- (n/4)*mean((tau_forster_bs[[1]]-tau)^2)
-    # res$ls_poly[i] <-(n/4)*mean((tau_ls_poly[[1]]-tau)^2)
-    # res$ls_ns[i] <- (n/4)*mean((tau_ls_ns[[1]]-tau)^2)
-    # res$ls_bs[i] <- (n/4)*mean((tau_ls_bs[[1]] -tau)^2)
-    # 
-    # cate_hat_mat$plugin[i] <- mean(plugin)
-    # cate_hat_mat$xl[i] <- mean(xl)
-    # cate_hat_mat$drl[i] <- mean(drl)
-    # #cate_hat_mat$drl_poly[i] <- mean(drl_hat_poly)
-    # #cate_hat_mat$drl_ns[i] <- mean(drl_hat_ns)
-    # cate_hat_mat$oracle.drl[i] <- mean(oracle.drl)
-    # cate_hat_mat$forster_poly[i] <- mean(tau_forster_poly[[1]])
-    # cate_hat_mat$forster_ns[i] <- mean(tau_forster_ns[[1]])
-    # cate_hat_mat$forster_bs[i] <- mean(tau_forster_bs[[1]] )
-    # cate_hat_mat$ls_poly[i] <-mean(tau_ls_poly[[1]])
-    # cate_hat_mat$ls_ns[i] <- mean(tau_ls_ns[[1]])
-    # cate_hat_mat$ls_bs[i] <- mean(tau_ls_bs[[1]] )
-    # 
+    #hard coded. Change later
+    f_z <- 0.8*sub_df$Z + 0.2*(1-sub_df$Z)
+    pseudoIV <- (2*sub_df$Z - 1)/f_z * (sub_df$Y - sub_df$A*betahat - EY0hat + EA0hat*betahat)/deltahat + betahat
+    return(pseudoIV)
   }
-  # res2 <- rbind(res2, c(rate, apply(res,2,mean)))
-  # cate_hat<- rbind(cate_hat, c(rate, apply(cate_hat_mat,2,mean)))
+  I_1$PsuedoO= po_fitter(I_1)
+  I_2$PsuedoO = po_fitter(I_2)
+  
+    
+    
+    
+  
+  
+
+ 
+
+  ## construct estimators
+
+  # do we need both IV and Covariate? No, just the covariate.
+  forster_poly_1 = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "poly")[[1]]
+  forster_ns_1 = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "ns")[[1]]
+  forster_bs_1 = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "bs")[[1]]
+  
+  forster_poly_2 = series_df(I_2$X,I_2$PsuedoO,I_1$X,df=4, type = "forster", basis_type = "poly")[[1]]
+  forster_ns_2 = series_df(I_2$X,I_2$PsuedoO,I_1$X,df=4, type = "forster", basis_type = "ns")[[1]]
+  forster_bs_2 = series_df(I_2$X,I_2$PsuedoO,I_1$X,df=4, type = "forster", basis_type = "bs")[[1]]
+  
+  forster_poly_cross = mean(forster_poly_1 + forster_poly_2)
+  forster_ns_cross = mean(forster_ns_1 + forster_ns_2)
+  forster_bs_cross = mean(forster_bs_1 + forster_bs_2)
+  
+  # ls_poly = series_df(I_1$X,I_1$PsudoO,I_2$X,df=4, type = "ls", basis_type = "poly")[[1]]
+  # ls_ns = series_df(I_1$X,I_1$PsudoO,I_2$X,df=4, type = "ls", basis_type = "ns")[[1]]
+  # ls_bs = series_df(I_1$X,I_1$PsudoO,I_2$X,df=4, type = "ls", basis_type = "bs")[[1]]
+  
+  
+  m_A1 = glm(A ~ ns(X),data = df[df$Z==1,],family = binomial())
+  m_A0 = glm(A ~ ns(X),data = df[df$Z==0,],family = binomial())
+  p_EA1hat <- predict(m_A1,newdata = df,type = "response")
+  p_EA0hat <- predict(m_A0,newdata = df,type = "response")
+  p_EY1hat <- predict(smooth.spline(df$X[df$Z==1] , df$Y[df$Z==1]),df$X)$y
+  p_EY0hat <- predict(smooth.spline(df$X[df$Z==0] , df$Y[df$Z==0]),df$X)$y
+    
+  plugin <- (p_EY1hat-p_EY0hat)/(p_EA1hat - p_EA0hat)
+  
+  
+
+  ## save MSEs
+  res$plugin[i] <- mean((plugin-tau)^2)
+  res$forster_poly[i] <- mean((forster_poly_1-tau)^2)
+  res$forster_ns[i] <- mean((forster_ns_1-tau)^2)
+  res$forster_bs[i] <- mean((forster_bs_1-tau)^2)
+  
+  res$forster_poly_cross[i] <- mean((forster_poly_cross-tau)^2)
+  res$forster_ns_cross[i] <- mean((forster_ns_cross-tau)^2)
+  res$forster_bs_cross[i] <- mean((forster_bs_cross-tau)^2)
+  
+  
+  # res$ls_poly[i] <-mean((ls_poly-tau)^2)
+  # res$ls_ns[i] <- mean((ls_ns-tau)^2)
+  # res$ls_bs[i] <- mean((ls_bs -tau)^2)
+  # 
+  cate_hat_mat$plugin[i] <- mean(plugin)
+  cate_hat_mat$forster_poly[i] <- mean(forster_poly_1)
+  cate_hat_mat$forster_ns[i] <- mean(forster_ns_1)
+  cate_hat_mat$forster_bs[i] <- mean(forster_bs_1)
+  cate_hat_mat$forster_poly_cross[i] <- mean(forster_poly_cross)
+  cate_hat_mat$forster_ns_cross[i] <- mean(forster_ns_cross)
+  cate_hat_mat$forster_bs_cross[i] <- mean(forster_bs_cross)
+  
+  # cate_hat_mat$ls_poly[i] <-mean(ls_poly-tau)
+  # cate_hat_mat$ls_ns[i] <- mean(ls_ns-tau)
+  # cate_hat_mat$ls_bs[i] <- mean(ls_bs -tau)
+  
 }
 
 ```
 
 ```{r}
+#plotting
+
+
+ggplot(res, aes(x = N))+
+  geom_line(aes(y = plugin, colour = "plugin"))+
+  geom_line(aes(y = forster_poly, colour = "forster_poly"))+
+  geom_line(aes(y = forster_ns, colour = "forster_ns"))+
+  geom_line(aes(y = forster_bs, colour = "forster_bs"))+
+  geom_line(aes(y = forster_poly_cross, colour = "forster_poly_cross"))+
+  geom_line(aes(y = forster_ns_cross, colour = "forster_ns_cross"))+
+  geom_line(aes(y = forster_bs_cross, colour = "forster_bs_cross"))+
+  ggtitle("MSE(N) comparison")+
+  xlab("Number of observations:2000-8000")+
+  ylab("MSE:1/n[(Y - Y*)^2]")
+  
+
+
 ```
 
 
 
 ```{r}
 
-final = list(res2, cate_hat)
-save(final, file = "plotdata_IV_2000.RData")
+
+
 ```
 

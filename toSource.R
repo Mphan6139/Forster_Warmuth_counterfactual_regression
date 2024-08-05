@@ -62,7 +62,7 @@ extendToMatch <- function(source, destin) {
   return (source)
 }
 
-#' g() 
+#' g
 #'
 #' Constructor for the Grouping/lbunch class used throughout. 
 #' Assigns to List a list containing all the function arguments
@@ -130,12 +130,9 @@ series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE)
       x_pred = matrix(poly(x_pred, df,raw = TRUE),nrow = ll)
     } else if (basis_type == "bs") {
       x_train = bs(X, df = 4, knots = df)
-      # x_train = bs(X, df = 4)
       x_pred[ll+1] = min(X)
       x_pred[ll+2] = max(X)
       x_pred = matrix(bs(x_pred, df = 4, knots = df)[1:ll,], nrow = ll)
-      # x_pred = matrix(bs(x_pred, df = 4)[1:ll,], nrow = ll)
-    
     } else {
       print("Basis type not supported: please use either bs, ns or poly")
     }
@@ -174,15 +171,15 @@ series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE)
 #' iterations on n/log(n) sample points from n
 #' 
 #'
-#' @param X: (n,1) vector of covariates
-#' @param Y: (n,1) vector of responses
-#' @param x_pred: (m,1) vector of covariates for missing data 
-#' @param type: type supplied to series_df 
-#' @param basis_type: basis_type supplies to series_df
-#' @param KK: Number of iterations to run cross validation
-#' @param df: df supplied to series_df 
-#' @param std: std supplied to series_df 
-#' @param df_grid: vector of df values to check. 
+#' @param X: (vector) of covariates
+#' @param Y: (vector) vector of responses
+#' @param x_pred: (vector) of covariates for missing data 
+#' @param type: (string) type supplied to series_df 
+#' @param basis_type: (string) basis_type supplies to series_df
+#' @param KK: (Int) Number of iterations to run cross validation
+#' @param df: (Int) "df" supplied to series_df 
+#' @param std: (Boolean) "std" supplied to series_df 
+#' @param df_grid: (vector) of df values to check. 
 #'
 #' @return List(final_est, estimator_list,D_list): 
 #'         final_est: the mean estimator_list
