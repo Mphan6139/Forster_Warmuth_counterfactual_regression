@@ -36,22 +36,28 @@ for (i in 1:nsim){
   # Measured covariate
   x <- runif(n,-1,1)
   # unmeasured confounder
-  u <- rnorm(n,sd=1)
+  u <- rbinom(n,1,prob=0.5)
   # IV:
   # Restriction: Independence from U
   z <- rbinom(n,1,prob = 0.8)
   # treatment variable: 
   # Restrictions: IV relevance
-  ps <- expit(x + z + 4*u)
+  delta_d <- tanh(-x)
+  delta <- tanh(0.5*x)
+  op_d <- exp(x)
+  p_0d <- 1/2/(op_d-1)*(op_d*(2 - delta_d) + delta_d - sqrt((op_d*(delta_d-2) - delta_d)^2 + 4*op_d*(1-delta_d)*(1-op_d)))
+  p_1d <- p_0d + delta_d
+  ps <- p_0d + z*delta_d + 0.1*(2*u-1)
+  range(ps)
   a <- rbinom(n,1,ps);
 
   
   #Restrictions: Exclusion restriction and no A,U interaction.
-  error <- rnorm(n,sd=1)
+  error <- rnorm(n,sd=0.02)
   p_2 <- function(x,a,u){
     f_x = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<0)*(x/2+0.875) +
     (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) 
-    return(f_x + 2*x*u + a + u) 
+    return(f_x + z*delta_d*delta + 0.1*(2*u-1)) 
   }
   
   mu0 <- p_2(x,rep(0,n),u);
@@ -172,13 +178,18 @@ for (i in 1:nsim){
 
 
 ggplot(res, aes(x = N))+
-  geom_line(aes(y = plugin, colour = "plugin"))+
-  geom_line(aes(y = forster_poly, colour = "forster_poly"))+
-  geom_line(aes(y = forster_ns, colour = "forster_ns"))+
+  
   geom_line(aes(y = forster_bs, colour = "forster_bs"))+
-  geom_line(aes(y = forster_poly_cross, colour = "forster_poly_cross"))+
-  geom_line(aes(y = forster_ns_cross, colour = "forster_ns_cross"))+
   geom_line(aes(y = forster_bs_cross, colour = "forster_bs_cross"))+
+  
+  geom_line(aes(y = forster_ns, colour = "forster_ns"))+
+  geom_line(aes(y = forster_ns_cross, colour = "forster_ns_cross"))+
+  
+  geom_line(aes(y = forster_poly, colour = "forster_poly"))+
+  geom_line(aes(y = forster_poly_cross, colour = "forster_poly_cross"))+
+  
+  geom_line(aes(y = plugin, colour = "plugin"))+
+  scale_color_manual(values=c('blue','cyan','darkgreen','green','purple' ,'orchid' ,'red'))+
   ggtitle("MSE(N) comparison")+
   xlab("Number of observations:2000-8000")+
   ylab("MSE:1/n[(Y - Y*)^2]")
@@ -192,6 +203,8 @@ ggplot(res, aes(x = N))+
 ```{r}
 
 
-
+rateseq <- seq(0.1,0.5,by=0.05);
+1/(n/4)^rateseq
+1/(n/4)^rateseq
 ```
 
