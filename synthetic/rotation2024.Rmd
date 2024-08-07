@@ -42,13 +42,10 @@ for (i in 1:nsim){
   z <- rbinom(n,1,prob = 0.8)
   # treatment variable: 
   # Restrictions: IV relevance
-  delta_d <- tanh(-x)
-  delta <- tanh(0.5*x)
-  op_d <- exp(x)
-  p_0d <- 1/2/(op_d-1)*(op_d*(2 - delta_d) + delta_d - sqrt((op_d*(delta_d-2) - delta_d)^2 + 4*op_d*(1-delta_d)*(1-op_d)))
-  p_1d <- p_0d + delta_d
-  ps <- p_0d + z*delta_d + 0.1*(2*u-1)
-  range(ps)
+  
+  
+  ps <- expit(x)*(0.2 + 0.6*z) + 0.1*(u)
+  
   a <- rbinom(n,1,ps);
 
   
@@ -57,7 +54,7 @@ for (i in 1:nsim){
   p_2 <- function(x,a,u){
     f_x = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<0)*(x/2+0.875) +
     (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) 
-    return(f_x + z*delta_d*delta + 0.1*(2*u-1)) 
+    return(f_x + a + 0.1*(2*u-1)) 
   }
   
   mu0 <- p_2(x,rep(0,n),u);
