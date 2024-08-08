@@ -25,7 +25,9 @@ nsim <- length(n_vec);
 set.seed(1)
 cate_hat_mat <- data.frame(matrix(nrow=nsim,ncol=7))
 res <- data.frame(matrix(nrow=nsim,ncol=7))
-colnames(cate_hat_mat) =colnames(res)= c("plugin","forster_poly","forster_ns","forster_bs", "forster_poly_cross","forster_ns_cross","forster_bs_cross")
+var_mat <- data.frame(matrix(nrow=nsim,ncol=7)) 
+colnames(var_mat) = colnames(cate_hat_mat) =colnames(res)= c("plugin","forster_poly","forster_ns","forster_bs", "forster_poly_cross","forster_ns_cross","forster_bs_cross")
+var_mat$N = n_vec
 res$N = n_vec
 cate_hat_mat$N = n_vec
 for (i in 1:nsim){
@@ -50,12 +52,16 @@ for (i in 1:nsim){
 
   
   #Restrictions: Exclusion restriction and no A,U interaction.
-  error <- rnorm(n,sd=0.02)
+  
   p_2 <- function(x,a,u){
-    f_x = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<0)*(x/2+0.875) +
-    (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) 
-    return(f_x + a + 0.1*(2*u-1)) 
+      p_x = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<0)*(x/2+0.875) +
+      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125) 
+      # f_a = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<0)*(0.5*x^2) +
+      # (x>0)*(-(x-0.5)^2 + 0.5)
+      f_a = (x/2+0.1)^2
+    return(p_x + a + 0.1*(2*u-1)) 
   }
+ 
   
   mu0 <- p_2(x,rep(0,n),u);
   mu1 <- p_2(x,rep(1,n),u);
@@ -63,6 +69,7 @@ for (i in 1:nsim){
   tau <- mean(cate)
   # outcome
   # under assumption 4.a) no A by U interaction
+  error <- rnorm(n,sd=0.1)
   y <- p_2(x,a,u) + error
 
   
@@ -80,14 +87,18 @@ for (i in 1:nsim){
     ## estimate nuisance functions
     # want to emphasize ability to use non-parametric nuissance functions  
 
-  
+    # use true DGP model
     model_A1 = glm(A ~ ns(X),data = sub_df[sub_df$Z==1,],family = binomial())
     model_A0 = glm(A ~ ns(X),data = sub_df[sub_df$Z==0,],family = binomial())
+    
+
     
     EA1hat <- predict(model_A1,newdata = sub_df,type = "response")
     EA0hat <- predict(model_A0,newdata = sub_df,type = "response")
     EY1hat <- predict(smooth.spline(sub_df$X[sub_df$Z==1] , sub_df$Y[sub_df$Z==1]),sub_df$X)$y
     EY0hat <- predict(smooth.spline(sub_df$X[sub_df$Z==0] , sub_df$Y[sub_df$Z==0]),sub_df$X)$y
+    
+    
     
     betahat <- (EY1hat-EY0hat)/(EA1hat - EA0hat)
     deltahat <- (EA1hat - EA0hat)
@@ -96,7 +107,7 @@ for (i in 1:nsim){
     pseudoIV <- (2*sub_df$Z - 1)/f_z * (sub_df$Y - sub_df$A*betahat - EY0hat + EA0hat*betahat)/deltahat + betahat
     return(pseudoIV)
   }
-  I_1$PsuedoO= po_fitter(I_1)
+  I_1$PsuedoO = po_fitter(I_1)
   I_2$PsuedoO = po_fitter(I_2)
   
     
@@ -110,17 +121,22 @@ for (i in 1:nsim){
   ## construct estimators
 
   # do we need both IV and Covariate? No, just the covariate.
-  forster_poly_1 = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "poly")[[1]]
-  forster_ns_1 = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "ns")[[1]]
-  forster_bs_1 = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "bs")[[1]]
+  forster_poly = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "poly")[[1]]
+  forster_ns = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "ns")[[1]]
+  forster_bs = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "bs")[[1]]
   
-  forster_poly_2 = series_df(I_2$X,I_2$PsuedoO,I_1$X,df=4, type = "forster", basis_type = "poly")[[1]]
-  forster_ns_2 = series_df(I_2$X,I_2$PsuedoO,I_1$X,df=4, type = "forster", basis_type = "ns")[[1]]
-  forster_bs_2 = series_df(I_2$X,I_2$PsuedoO,I_1$X,df=4, type = "forster", basis_type = "bs")[[1]]
+cross_fit <- function(df_, I_1_, I_2_,type_,basis_){
+  forster_1 = series_df(I_1_$X,I_1_$PsuedoO,df_$X,df=4, type = type_, basis_type = basis_)[[1]]
   
-  forster_poly_cross = mean(forster_poly_1 + forster_poly_2)
-  forster_ns_cross = mean(forster_ns_1 + forster_ns_2)
-  forster_bs_cross = mean(forster_bs_1 + forster_bs_2)
+  forster_2 = series_df(I_2_$X,I_2_$PsuedoO,df_$X,df=4, type = type_, basis_type = basis_)[[1]]
+  
+  return(1/2*(forster_1+forster_2))
+  
+}
+  
+  forster_poly_cross = cross_fit(df, I_1, I_2, "forster" , "poly" )
+  forster_ns_cross = cross_fit(df, I_1, I_2, "forster" , "ns" )
+  forster_bs_cross = cross_fit(df, I_1, I_2, "forster" , "bs" )
   
   # ls_poly = series_df(I_1$X,I_1$PsudoO,I_2$X,df=4, type = "ls", basis_type = "poly")[[1]]
   # ls_ns = series_df(I_1$X,I_1$PsudoO,I_2$X,df=4, type = "ls", basis_type = "ns")[[1]]
@@ -135,19 +151,22 @@ for (i in 1:nsim){
   p_EY1hat <- predict(smooth.spline(df$X[df$Z==1] , df$Y[df$Z==1]),df$X)$y
   p_EY0hat <- predict(smooth.spline(df$X[df$Z==0] , df$Y[df$Z==0]),df$X)$y
     
+  
+  lm(y ~ poly(x, degree = 3, raw = TRUE, data = summary(smooth.spline(df$X, df$Y))))
+  
   plugin <- (p_EY1hat-p_EY0hat)/(p_EA1hat - p_EA0hat)
   
   
 
   ## save MSEs
-  res$plugin[i] <- mean((plugin-tau)^2)
-  res$forster_poly[i] <- mean((forster_poly_1-tau)^2)
-  res$forster_ns[i] <- mean((forster_ns_1-tau)^2)
-  res$forster_bs[i] <- mean((forster_bs_1-tau)^2)
+  res$plugin[i] <- mean((plugin-cate)^2)
+  res$forster_poly[i] <- mean((forster_poly-cate)^2)
+  res$forster_ns[i] <- mean((forster_ns-cate)^2)
+  res$forster_bs[i] <- mean((forster_bs-cate)^2)
   
-  res$forster_poly_cross[i] <- mean((forster_poly_cross-tau)^2)
-  res$forster_ns_cross[i] <- mean((forster_ns_cross-tau)^2)
-  res$forster_bs_cross[i] <- mean((forster_bs_cross-tau)^2)
+  res$forster_poly_cross[i] <- mean((forster_poly_cross-cate)^2)
+  res$forster_ns_cross[i] <- mean((forster_ns_cross-cate)^2)
+  res$forster_bs_cross[i] <- mean((forster_bs_cross-cate)^2)
   
   
   # res$ls_poly[i] <-mean((ls_poly-tau)^2)
@@ -155,9 +174,9 @@ for (i in 1:nsim){
   # res$ls_bs[i] <- mean((ls_bs -tau)^2)
   # 
   cate_hat_mat$plugin[i] <- mean(plugin)
-  cate_hat_mat$forster_poly[i] <- mean(forster_poly_1)
-  cate_hat_mat$forster_ns[i] <- mean(forster_ns_1)
-  cate_hat_mat$forster_bs[i] <- mean(forster_bs_1)
+  cate_hat_mat$forster_poly[i] <- mean(forster_poly)
+  cate_hat_mat$forster_ns[i] <- mean(forster_ns)
+  cate_hat_mat$forster_bs[i] <- mean(forster_bs)
   cate_hat_mat$forster_poly_cross[i] <- mean(forster_poly_cross)
   cate_hat_mat$forster_ns_cross[i] <- mean(forster_ns_cross)
   cate_hat_mat$forster_bs_cross[i] <- mean(forster_bs_cross)
@@ -165,6 +184,9 @@ for (i in 1:nsim){
   # cate_hat_mat$ls_poly[i] <-mean(ls_poly-tau)
   # cate_hat_mat$ls_ns[i] <- mean(ls_ns-tau)
   # cate_hat_mat$ls_bs[i] <- mean(ls_bs -tau)
+  
+  
+  
   
 }
 
@@ -198,10 +220,26 @@ ggplot(res, aes(x = N))+
 
 
 ```{r}
+# Variance plots
+FW_fit_1 = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "bs")[[1]]
+FW_fit_2 = series_df(I_2$X,I_2$PsuedoO,I_1$X,df=4, type = "forster", basis_type = "bs")[[1]]
+
+cross_fit_CATE = c(FW_fit_1,FW_fit_2)
+df$f_hat = cross_fit_CATE
+
+EY1hat <- predict(smooth.spline(I_1$X[I_1$Z==1] , I_1$Y[I_1$Z==1]),I_1$X)$y
+EY0hat <- predict(smooth.spline(I_1$X[I_1$Z==0] , I_1$Y[I_1$Z==0]),I_1$X)$y
+# I_2$std_PsO = diag(FW_fit[[2]])
+# I_2$lb = I_2$f_hat - 1.96*I_2$std_PsO
+# I_2$ub = I_2$f_hat + 1.96*I_2$std_PsO
+# std_bs = diag(series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "bs",std=TRUE)[[2]])
+#std_ns = diag(series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "ns",std=TRUE)[[2]])
+ggplot(df, aes(X))+
+  geom_line(aes(y = f_hat),colour="blue") 
+  #+ geom_ribbon(aes(ymin = lb, ymax = ub), fill = "grey70",alpha=0.4) 
+
+# I_2[c(0,1,2),c("lb","PseudoO","ub")] 
 
 
-rateseq <- seq(0.1,0.5,by=0.05);
-1/(n/4)^rateseq
-1/(n/4)^rateseq
 ```
 
