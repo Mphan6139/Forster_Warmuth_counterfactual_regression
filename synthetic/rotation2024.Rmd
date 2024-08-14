@@ -40,6 +40,7 @@ cate_hat_mat$N = n_vec
 
 for (i in 1:nsim){
   n = n_vec[i]
+  print(n)
   s <- sort(rep(1:2,n/2));
   
   
@@ -48,12 +49,13 @@ for (i in 1:nsim){
   # unmeasured confounder
   u <- rbinom(n,1,prob=0.5)
   # IV:
+  p_z = 0.5
   # Restriction: Independence from U
-  z <- rbinom(n,1,prob = 0.5)
+  z <- rbinom(n,1,prob = p_z)
   # treatment variable: 
   # Restrictions: IV relevance
   
-  ps <- expit(2+2*x)*(0.2 + 0.6*z) + 0.1*(u)
+  ps <- expit(4+2*x)*(0.2 + 0.6*z) + 0.1*(2*u-1)
   range(ps)
   
   a <- rbinom(n,1,ps);
@@ -62,13 +64,14 @@ for (i in 1:nsim){
   #Restrictions: Exclusion restriction and no A,U interaction.
   
   p_2 <- function(x,a,u){
-      p_x = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<0)*(x/2+0.875) +
-      (x>0 & x<.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125)
-      range(p_x)
+      p_x = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<=0)*(x/2+0.875) +
+      (x>0 & x<=.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125)
       # f_a = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<0)*(0.5*x^2) +
       # (x>0)*(-(x-0.5)^2 + 0.5)
       f_a = a*0.3*(0.8 - 0.6*x + 0.9*x^3)
-    return(p_x + f_a + 0.1*(2*u-1)) 
+      # f_a = 0.6*a
+      
+    return(p_x+ f_a + 0.2*(2*u-1)) 
   }
  
   
@@ -78,49 +81,67 @@ for (i in 1:nsim){
   tau <- mean(cate)
   # outcome
   # under assumption 4.a) no A by U interaction
-  error <- rnorm(n,sd=0.1)
+  error <- rnorm(n,sd=0.2)
   y <- p_2(x,a,u) + error
 
   
-  df <- data.frame(X=x,Y=y,Z=z,A=a, S= s)
-  df = df[order(df$X, decreasing = TRUE),]
+  df <- data.frame(X=x,Y=y,Z=z,A=a, S= s,cate_x=cate)
+  df = df[order(df$X),]
   # function for cross fitting 1 and 2
   
   
+  ## plugin  
+  # m_A1 = glm(A ~ ns(X),data = df[df$Z==1,],family = binomial())
+  # m_A0 = glm(A ~ ns(X),data = df[df$Z==0,],family = binomial())
+  # df$EA1hat <- predict(m_A1,newdata = df,type = "response")
+  # df$EA0hat <- predict(m_A0,newdata = df,type = "response")
+  plugin_f <- function(x){
+    EA1hat_x <- expit(2+2*x)*(0.8)
+    EA0hat_x <- expit(2+2*x)*(0.2)
+    EY1hat_x <- predict(smooth.spline(df$X[df$Z==1] , df$Y[df$Z==1]),x)$y
+    EY0hat_x <- predict(smooth.spline(df$X[df$Z==0] , df$Y[df$Z==0]),x)$y
+    return (EY1hat_x-EY0hat_x)/(EA1hat_x - EA0hat_x)
+  }
+  
+  
+  plugin <- plugin_f(df$X)
  
   I_1 <- df[df$S==1,]
-  I_1=I_1[order(I_1$X, decreasing = TRUE),]
+  I_1=I_1[order(I_1$X),]
   I_2 <- df[df$S==2,]
-  I_2=I_2[order(I_2$X, decreasing = TRUE),]
+  I_2=I_2[order(I_2$X),]
 
   po_fitter <- function(sub_df){
     ## estimate nuisance functions
     # want to emphasize ability to use non-parametric nuissance functions  
 
-    EA1hat = 0.8*expit(2 + sub_df$X)
-    EA0hat = 0.8*expit(sub_df$X)
     
-    # use true DGP model
-    model_A1 = glm(A ~ ns(X),data = sub_df[sub_df$Z==1,],family = binomial())
-    model_A0 = glm(A ~ ns(X),data = sub_df[sub_df$Z==0,],family = binomial())
-
-
-
-    EA1hat <- predict(model_A1,newdata = sub_df,type = "response")
-    EA0hat <- predict(model_A0,newdata = sub_df,type = "response")
+    # use true model
+    EA1hat = expit(2+2*sub_df$X)*(0.8) 
+    EA0hat = expit(2+2*sub_df$X)*(0.2) 
+    
+    ## Estimate A
+    # model_A1 = glm(A ~ ns(X),data = sub_df[sub_df$Z==1,],family = binomial())
+    # model_A0 = glm(A ~ ns(X),data = sub_df[sub_df$Z==0,],family = binomial())
+    # EA1hat <- predict(model_A1,newdata = sub_df,type = "response")
+    # EA0hat <- predict(model_A0,newdata = sub_df,type = "response")
+    
     EY1hat <- predict(smooth.spline(sub_df$X[sub_df$Z==1] , sub_df$Y[sub_df$Z==1]),sub_df$X)$y
     EY0hat <- predict(smooth.spline(sub_df$X[sub_df$Z==0] , sub_df$Y[sub_df$Z==0]),sub_df$X)$y
     
     
-    
-    betahat <- (EY1hat-EY0hat)/(EA1hat - EA0hat)
     deltahat <- (EA1hat - EA0hat)
-    #hard coded. Change later
-    f_z <- 0.8*sub_df$Z + 0.2*(1-sub_df$Z)
+    
+    betahat <- (EY1hat-EY0hat)/deltahat
+
+    #hard coded. I dont think we are robust to misspecification of this
+    #UPDATE: We are multiply robust, look at the linbo paper
+    f_z <- p_z*sub_df$Z + (1-p_z)*(1-sub_df$Z)
     pseudoIV <- (2*sub_df$Z - 1)/f_z * (sub_df$Y - sub_df$A*betahat - EY0hat + EA0hat*betahat)/deltahat + betahat
     return(pseudoIV)
   }
   I_1$PsuedoO = po_fitter(I_1)
+  
   I_2$PsuedoO = po_fitter(I_2)
   
     
@@ -155,19 +176,7 @@ cross_fit <- function(df_, I_1_, I_2_,type_,basis_,knots_){
   ls_ns = cross_fit(df, I_1, I_2, "ls" , "ns" , 50)
   ls_bs = cross_fit(df, I_1, I_2, "ls" , "bs" , 50)
   
-  # 
-  m_A1 = glm(A ~ ns(X),data = df[df$Z==1,],family = binomial())
-  m_A0 = glm(A ~ ns(X),data = df[df$Z==0,],family = binomial())
-  p_EA1hat <- predict(m_A1,newdata = df,type = "response")
-  p_EA0hat <- predict(m_A0,newdata = df,type = "response")
-  # p_EA1hat <- 0.8*expit(2 + df$X)
-  # p_EA0hat <- 0.8*expit(df$X)
-  p_EY1hat <- predict(smooth.spline(df$X[df$Z==1] , df$Y[df$Z==1]),df$X)$y
-  p_EY0hat <- predict(smooth.spline(df$X[df$Z==0] , df$Y[df$Z==0]),df$X)$y
-    
   
-  
-  plugin <- (p_EY1hat-p_EY0hat)/(p_EA1hat - p_EA0hat)
   
   
 
@@ -185,7 +194,7 @@ cross_fit <- function(df_, I_1_, I_2_,type_,basis_,knots_){
   res$ls_poly[i] <-mean((ls_poly-cate)^2)
   res$ls_ns[i] <- mean((ls_ns-cate)^2)
   res$ls_bs[i] <- mean((ls_bs -cate)^2)
-  # 
+  
   cate_hat_mat$plugin[i] <- mean(plugin)
   # cate_hat_mat$forster_poly[i] <- mean(forster_poly)
   # cate_hat_mat$forster_ns[i] <- mean(forster_ns)
@@ -194,9 +203,9 @@ cross_fit <- function(df_, I_1_, I_2_,type_,basis_,knots_){
   cate_hat_mat$forster_ns_cross[i] <- mean(forster_ns_cross)
   cate_hat_mat$forster_bs_cross[i] <- mean(forster_bs_cross)
   
-  # cate_hat_mat$ls_poly[i] <-mean(ls_poly-tau)
-  # cate_hat_mat$ls_ns[i] <- mean(ls_ns-tau)
-  # cate_hat_mat$ls_bs[i] <- mean(ls_bs -tau)
+  cate_hat_mat$ls_poly[i] <-mean(ls_poly)
+  cate_hat_mat$ls_ns[i] <- mean(ls_ns)
+  cate_hat_mat$ls_bs[i] <- mean(ls_bs)
   
   
   
@@ -232,14 +241,17 @@ ggplot(res, aes(x = N))+
 
 ```{r}
 # Variance plots
-DegF = 4
-FW_fit_1 = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=DegF, type = "forster", basis_type = "poly")[[1]]
-FW_fit_2 = series_df(I_2$X,I_2$PsuedoO,I_1$X,df=DegF, type = "forster", basis_type = "poly")[[1]]
-cate_f <- function(x){0.3*(0.8 - 0.6*x + 0.9*x^3)}
-I_2$po_ = FW_fit_1 
+DegF = 50
+FW_fit_1 = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=DegF, type = "forster", basis_type = "bs")[[1]]
+FW_fit_2 = series_df(I_2$X,I_2$PsuedoO,I_1$X,df=DegF, type = "forster", basis_type = "bs")[[1]]
+
+I_2$po_hat = FW_fit_1 
 ggplot(I_2, aes(X))+
-  geom_line(aes(y = po_),colour="blue")+
-  geom_line(aes(y=cate_f(X),colour = "red"))
+  geom_line(aes(y= cate_x,colour = "CATE(X)"))+
+  geom_line(aes(y = po_hat,colour="FW polynomial"))+
+  ggtitle("CATE Function Estimates")+
+  xlab("X")+
+  ylab("Estimate of CATE(X)")
 
 
 # FW_fit_2 = series_df(I_2$X,I_2$PsuedoO,I_1$X,df=DegF, type = "forster", basis_type = "ns")[[1]]
@@ -259,30 +271,86 @@ ggplot(I_2, aes(X))+
 
 
 ```
-```{r}
-forster_ns_cross = cross_fit(df, I_1, I_2, "forster" , "ns", 50)
-forster_bs_cross = cross_fit(df, I_1, I_2, "forster" , "bs", 50)
-```
-
 
 ```{r}
-ggplot() + geom_line(aes(x=df$X,y = forster_ns_cross),colour="blue") 
-ggplot() + geom_line(aes(x=df$X,y = forster_bs_cross),colour="blue") 
-
+df$CATE_FW_NS  = cross_fit(df, I_1, I_2, "forster" , "ns", 200)
+df$CATE_FW_BS  = cross_fit(df, I_1, I_2, "forster" , "bs", 200)
 ```
 
 ```{r}
-# p_EA1hat <- 0.8*expit(2 + df$X)
-# p_EA0hat <- 0.8*expit(df$X)
-# p_EY1hat <- predict(smooth.spline(df$X[df$Z==1] , df$Y[df$Z==1]),df$X)$y
-# p_EY0hat <- predict(smooth.spline(df$X[df$Z==0] , df$Y[df$Z==0]),df$X)$y
-# plugin <- (p_EY1hat-p_EY0hat)/(p_EA1hat - p_EA0hat)
 
-EY1hat <- predict(smooth.spline(df$X[df$Z==1] , df$Y[df$Z==1]),df$X)$y
-EY0hat <- predict(smooth.spline(df$X[df$Z==0] , df$Y[df$Z==0]),df$X)$y
-EA1hat = 0.8*expit(2 + df$X)
-EA0hat = 0.8*expit(df$X)
-plugin = (EY1hat-EY0hat)/(EA1hat-EA0hat)
-plot(x,plugin)
+ggplot(df,aes(x=X)) + 
+  geom_line(aes(y = CATE_FW_NS,colour = "forster ns"))+
+  geom_line(aes(y = CATE_FW_BS,colour = "forster bs")) + 
+  geom_line(aes(y= cate_f(X),colour = "CATE(X)"))+
+  ggtitle("CATE Function Estimates")+
+  xlab("X")+
+  ylab("CATE(X)")
+
+```
+
+
+
+
+
+```{r}
+
+D1=NULL
+# Trying cross validaing the DF
+est_forster_poly=est_forster_bs = x1_list = seq(from=-1,to=1,by=0.1)
+
+for (k in seq(from=1,to=length(x1_list))){
+  x1 = x1_list[k]
+  cat(paste0(k,"/", length(x1_list),' '))
+  tau_forster_bs = series_cv_new(I_1$X,I_1$PsuedoO,x1,  type = "forster", basis_type = "bs", KK=5)
+  #g(X, Y, x_pred, df,type, basis_type)  %=%  list(X1, pseudo_proxy, x1, 50, "forster", "bs")
+  est_forster_bs[k] <- tau_forster_bs[[1]]
+  
+  D1_list = tau_forster_bs[[3]]
+  # var1_list = sapply(D1_list, function(D_1){ 
+  #   tmp = series_df(X1,pseudo_sl,x1 ,df=D_1,type = "forster", basis_type = "bs",std=TRUE)
+  #   tmp[[2]]
+  #   })
+  # sd_forster_bs[k] = mean(var1_list)
+  # 
+  
+  tau_forster_poly = series_cv_new(I_1$X,I_1$PsuedoO,x1,  type = "forster", basis_type = "poly", KK=5)
+  # #g(X, Y, x_pred, df,type, basis_type)  %=%  list(X1, pseudo_proxy, x1, 5, "forster", "poly")
+  est_forster_poly[k] <- tau_forster_poly[[1]]
+  # D3_list = tau_forster_poly[[3]]
+  # var3_list = sapply(D3_list, function(D_3){ 
+  #   tmp = series_df(X1,pseudo_sl,x1 ,df=D_3,type = "forster", basis_type = "poly",std=TRUE)
+  #   tmp[[2]]
+  # })
+  # D3 = c(D3,D3_list)
+  # sd_forster_poly[k] = mean(var3_list)
+}
+```
+```{r}
+cate_f <- function(x){
+  p_2(x,1,0) - p_2(x,0,0) 
+}
+cate_f(0)
+temp_df = cbind(x1_list,est_forster_bs,est_forster_poly)
+ggplot(temp_df) + 
+  geom_line(aes(x=x1_list,y=est_forster_bs,color = "bs"), size = s_) + 
+  geom_line(aes(x=x1_list,cate_f(x1_list),color = "CATE(X)"), size = s_) +
+  geom_line(aes(x=x1_list,plugin_f(x1_list),color="plugin"), size = s_) +
+  geom_line(aes(x=x1_list,y=est_forster_poly,color="poly"), size = s_) +
+
+  ggtitle("CATE Function Estimates")+
+  xlab("X")+
+  ylab("CATE(X)")+
+  scale_color_manual(values=c("#66A61E","black","#E7298A","#E6AB02"))
+
+
+mse_bs = mean((est_forster_bs-cate_f(x1_list))**2)
+mse_poly = mean((est_forster_poly-cate_f(x1_list))**2)
+mse_plugin = mean((plugin_f(x1_list)-cate_f(x1_list))**2)
+c(mse_bs,mse_poly,mse_plugin)
+```
+
+```{r}
+mean(matrix(c(1,2,3,4,5,6),nrow=2))
 ```
 
