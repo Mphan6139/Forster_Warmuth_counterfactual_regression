@@ -97,14 +97,14 @@ g = function(...) {
 #'    'poly' = orthogonal polynomial basis of degree = df
 #'    
 #'
-#' @param X: (n,1) vector of covariates for full data (L1)
-#' @param Y: (n,1) vector of responses  
-#' @param x_pred: (m,1) vector of covariates for missing data (L2)  
-#' @param df: the degrees of freedom for the natural cubic spline basis,
+#' @param X (n,1) vector of covariates for full data (L1)
+#' @param Y (n,1) vector of responses  
+#' @param x_pred (m,1) vector of covariates for missing data (L2)  
+#' @param df the degrees of freedom for the natural cubic spline basis,
 #'            Note: knots = k = df − 1
-#' @param type: method of optimization. 
-#' @param basis_type: basis function defining the vector space optimized over
-#' @param std: if true, returns the standard deviation = 
+#' @param type method of optimization. 
+#' @param basis_type basis function defining the vector space optimized over
+#' @param std if true, returns the standard deviation = 
 #'            sqrt(x_pred%*%inv %*%t(x_pred ))*sd(Y) 
 #'
 #' @return the (m,1) predicted response vector Y^* on x_pred. 
@@ -171,15 +171,15 @@ series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE)
 #' iterations on n/log(n) sample points from n
 #' 
 #'
-#' @param X: (n,1) vector of covariates
-#' @param Y: (n,1) vector of responses
-#' @param x_pred: (m,1) vector of covariates for missing data 
-#' @param type: type supplied to series_df 
-#' @param basis_type: basis_type supplies to series_df
-#' @param KK: Number of iterations to run cross validation
-#' @param df: df supplied to series_df 
-#' @param std: std supplied to series_df 
-#' @param df_grid: vector of df values to check. 
+#' @param X (n,1) vector of covariates
+#' @param Y (n,1) vector of responses
+#' @param x_pred (m,1) vector of covariates for missing data 
+#' @param type type supplied to series_df 
+#' @param basis_type basis_type supplies to series_df
+#' @param KK Number of iterations to run cross validation
+#' @param df df supplied to series_df 
+#' @param std std supplied to series_df 
+#' @param df_grid vector of df values to check. 
 #'
 #' @return List(final_est, estimator_list,D_list): 
 #'         final_est: the mean estimator_list
@@ -227,15 +227,47 @@ series_cv_new = function(X,Y,x_pred, type = "forster", basis_type = "poly", KK=1
 
 
 #' series_cv_df
-#'
-#' @param:
-#' @return 
+#' 
+#' Function for getting best degree of freedom argument for Forster-warmuth estimator through
+#' cross validation
+#' 
+#' @param X Covariate matrix
+#' @param Y Outcome vector 
+#' @param df_grid Degree of freedom vector to iterate over. 
+#' @param type type argument supplied to series_df
+#' @param basis_type basis_type supplied to series_df 
+#' @param KK number of iterations to run cross validation 
+#' 
+#' @return (Int) optimal degree of freedom
 #'         
 #' @export
 #'
 #' @examples
-series_cv_df = function(){
-  
+series_cv_df = function(X,Y,df_grid=NULL,type,basis_type, KK=5){
+    n = length(X) 
+    s_test = floor(n/log(n))
+    if (is.null(df_grid)){
+      df_grid = seq(4,18, by = 2)
+      if (basis_type == "bs"){df_grid = seq(50,200, by = 15)}
+    }
+    l = length(df_grid)
+    mse_grid_cv = matrix(NA,l, KK)
+    estimator_list = D_list = rep(NA,KK)
+    for (k in seq(KK)){
+      cat(paste0(k,"/", KK,' '))
+      ind_test = sample(1:n, size = s_test) 
+      
+      g(train_X, train_Y) %=% list(X[-ind_test],  Y[-ind_test])
+      g(test_X, test_Y) %=% list(X[ind_test],  Y[ind_test])
+      for (i in 1:l){
+        df_temp = df_grid[i]
+        temp =  series_df(X = train_X, Y=train_Y, x_pred = test_X, df = df_temp ,type = type, basis_type = basis_type)[[1]]
+        mse_grid_cv[i,k] = mean((temp - test_Y)^2)
+      }
+    }
+    mean_mses = rowMeans(mse_grid_cv)
+    ind = which(mean_mses==min(mean_mses))[[1]]
+    return(df_grid[ind])
 }
 
 
