@@ -54,7 +54,8 @@ for (i in 1:nsim){
   # Restriction: Independence from U
   z <- rbinom(n,1,prob = p_z)
   
-  ps <- 0.2*expit(2*x) + 0.4*z + 0.1*(u>0)
+  # ps <- 0.2*expit(2*x) + 0.6*z + 0.1*(u>0)
+  ps <- (1-z)*(0.2*expit(2*x) + 0.1*(u>0)) + z*(exp(-1*(x^2)))
   range(ps)
   a <- rbinom(n,1,ps);
 
@@ -62,16 +63,19 @@ for (i in 1:nsim){
   p_2 <- function(x,a,u){
       # p_x = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<=0)*(x/2+0.875) +
       # (x>0 & x<=.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125)
-      # p_x = 0.8 - 0.6*x + 0.8*x^3
+      p_x1 = 0.8 + 0.6*x
+      p_x0 = 0.8 - 0.2*x + 5*x^2 + 10*x^3
+
       
-      p_x = (x <= -.5)*0.5 + (x > -.5 & x<=0)*1 +
-      (x>0 & x<=.5)*-0.5 + (x>.5)*2
+      # p_x = (x <= -.5)*0.5 + (x > -.5 & x<=0)*1 +
+      # (x>0 & x<=.5)*-0.5 + (x>.5)*2
 
       # f_a = 0.6
       # f_a = (0.8 - 0.6*x)
-      f_a = (0.8 - 0.6*x + 0.8*x^3)
+      # f_a = (0.8 - 0.6*x + 0.8*x^3)
+      # f_a = 1*(-0.5<x)*(x<0.5)
       
-    return(p_x + a*f_a + 0.1*u) 
+    return((1-a)*p_x0 + a*p_x1 + 0.5*u) 
   }
   
   
@@ -97,12 +101,12 @@ for (i in 1:nsim){
   I_1 <- df[df$S==1,]
   I_2 <- df[df$S==2,]
   
-  # m1=lm(Y~X,I_1[I_1$Z==1,])
-  # m0=lm(Y~X,I_1[I_1$Z==0,])
-  # EY1hat <- predict(m1,data.frame(X=x_new))
-  # EY0hat <- predict(m0,data.frame(X=x_new))
-  EY1hat <- predict(smooth.spline(I_1[I_1$Z==1,"X"],I_1[I_1$Z==1,"Y"]),x_new)$y
-  EY0hat <- predict(smooth.spline(I_1[I_1$Z==0,"X"],I_1[I_1$Z==0,"Y"]),x_new)$y
+  m1=lm(Y~X,I_1[I_1$Z==1,])
+  m0=lm(Y~X,I_1[I_1$Z==0,])
+  EY1hat <- predict(m1,data.frame(X=x_new))
+  EY0hat <- predict(m0,data.frame(X=x_new))
+  # EY1hat <- predict(smooth.spline(I_1[I_1$Z==1,"X"],I_1[I_1$Z==1,"Y"]),x_new)$y
+  # EY0hat <- predict(smooth.spline(I_1[I_1$Z==0,"X"],I_1[I_1$Z==0,"Y"]),x_new)$y
   EA1hat <- predict(glm(A~X, data=I_1[I_1$Z==1,], family=binomial()),data.frame(X=x_new),type="response")
   EA0hat <- predict(glm(A~X, data=I_1[I_1$Z==0,], family=binomial()),data.frame(X=x_new),type="response")
   
@@ -114,12 +118,12 @@ for (i in 1:nsim){
   
   po_fitter <- function(df_train, df_test){
   
-    # m1=lm(Y~X,df_train[df_train$Z==1,])
-    # m0=lm(Y~X,df_train[df_train$Z==0,])
-    # EY1hat <- predict(m1,df_test)
-    # EY0hat <- predict(m0,df_test)
-    EY1hat <- predict(smooth.spline(df_train[df_train$Z==1,"X"],df_train[df_train$Z==1,"Y"]),df_test$X)$y
-    EY0hat <- predict(smooth.spline(df_train[df_train$Z==0,"X"],df_train[df_train$Z==0,"Y"]),df_test$X)$y
+    m1=lm(Y~X,df_train[df_train$Z==1,])
+    m0=lm(Y~X,df_train[df_train$Z==0,])
+    EY1hat <- predict(m1,df_test)
+    EY0hat <- predict(m0,df_test)
+    # EY1hat <- predict(smooth.spline(df_train[df_train$Z==1,"X"],df_train[df_train$Z==1,"Y"]),df_test$X)$y
+    # EY0hat <- predict(smooth.spline(df_train[df_train$Z==0,"X"],df_train[df_train$Z==0,"Y"]),df_test$X)$y
     EA1hat <- predict(glm(A~X, data=df_train[df_train$Z==1,], family=binomial()),data.frame(X=df_test$X),type="response")
     EA0hat <- predict(glm(A~X, data=df_train[df_train$Z==0,], family=binomial()),data.frame(X=df_test$X),type="response")
     
@@ -244,20 +248,20 @@ s_ = 1
 ggplot(res, aes(x = N))+
   
   # geom_line(aes(y = ls_bs, colour = "ls_bs"), linewidth = s_)+
-  geom_line(aes(y = forster_bs_cross, colour = "forster_bs_cross"), linewidth = s_)+
+  geom_line(aes(y = forster_bs_cross, colour = "FW w/ bs"), linewidth = s_)+
   
   # geom_line(aes(y = ls_ns, colour = "ls_ns"), linewidth = s_)+
-  geom_line(aes(y = forster_ns_cross, colour = "forster_ns_cross"), linewidth = s_)+
+  geom_line(aes(y = forster_ns_cross, colour = "FW w/ ns"), linewidth = s_)+
   
   # geom_line(aes(y = ls_poly, colour = "ls_poly"), linewidth = s_)+
-  geom_line(aes(y = forster_poly_cross, colour = "forster_poly_cross"), linewidth = s_)+
+  geom_line(aes(y = forster_poly_cross, colour = "FW w/ poly"), linewidth = s_)+
   
   geom_line(aes(y = plugin, colour = "plugin"), linewidth = s_)+
-  scale_color_manual(values=c("#66A61E","#1B9E77","#E6AB02", "#D95F02","#A6761D", "#7570B3", "#E7298A"))+
+  scale_color_manual(values=c("#66A61E","#1B9E77","#E6AB02","#E7298A"))+
   # scale_color_manual(values=c("#1B9E77", "#D95F02", "#7570B3" ,"#E7298A"))+
-  ggtitle("MSE(N) comparison")+
+  ggtitle("Mean Squared Error comparison over [-1,1]")+
   xlab("Number of observations")+
-  ylab("MSE:1/n[(Y - Y*)^2]")
+  ylab("MSE")
 ```
 
 
@@ -265,17 +269,38 @@ ggplot(res, aes(x = N))+
 
 temp_df = cbind(x_new,forster_bs_cross,forster_poly_cross)
 ggplot(temp_df) + 
-  geom_line(aes(x=x_new,y=forster_bs_cross,color = "bs"), linewidth = s_) + 
-  geom_line(aes(x=x_new,y=forster_ns_cross,color = "ns"), linewidth = s_) +
-  geom_line(aes(x=x_new,cate,color = "CATE(X)"), linewidth = s_) +
+  geom_line(aes(x=x_new,cate,color = "True"), linewidth = s_) +
+  geom_line(aes(x=x_new,y=forster_bs_cross,color = "FW w/ bs"), linewidth = s_) + 
+  geom_line(aes(x=x_new,y=forster_ns_cross,color = "FW w/ ns "), linewidth = s_) +
+  geom_line(aes(x=x_new,y=forster_poly_cross,color="FW w/ polynomial"), linewidth = s_) +
   geom_line(aes(x=x_new,plugin,color="plugin"), linewidth = s_) +
-  geom_line(aes(x=x_new,y=forster_poly_cross,color="poly"), linewidth = s_) +
 
   ggtitle("CATE Function Estimates")+
   xlab("X")+
   ylab("CATE(X)")+
-  scale_color_manual(values=c("#66A61E","black","#1B9E77","#E7298A","#E6AB02"))
+  scale_color_manual(name="Function",values=c("#66A61E","#1B9E77","#E6AB02","#E7298A","black"))
 
 
 
 ```
+
+
+
+```{r}
+# ALT data generation
+# 
+# x <- runif(n,-1,1)
+# beta_x <-  + tanh(x)/delta_x
+# 
+# #P(A|Z=1)=delta_x + P(A|Z=0)
+# delta_x <- tanh(0.5*x)
+# alpha_x0 <- expit(x + log(3))
+# alpha_x1 <- delta_x + alpha_x0
+# range(alpha_x1)
+# alpha_x <-
+# eta_x <- 
+```
+
+
+
+
