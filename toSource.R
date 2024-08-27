@@ -116,7 +116,7 @@ series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE)
     X = X[or]
     Y = Y[or]
     ll = length(x_pred)
-    x_pred = sort(x_pred)
+    # x_pred = sort(x_pred)
 
     
     if (basis_type == "ns") {
@@ -224,6 +224,22 @@ series_cv_new = function(X,Y,x_pred, type = "forster", basis_type = "poly", KK=1
     
     return (list(final_est = mean(estimator_list), estimator_list = estimator_list, D_list = D_list))
   }
+
+
+#' series_cv_df
+#'
+#' @param:
+#' @return 
+#'         
+#' @export
+#'
+#' @examples
+series_cv_df = function(){
+  
+}
+
+
+
 
 # nonparametric RKHS fitted DR estimator for CATE through Cross-fitting
 #' CF_cate
