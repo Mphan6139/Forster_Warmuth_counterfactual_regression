@@ -13,6 +13,11 @@ library(splines)
 library(latex2exp)
 source('..//toSource.R')
 library(polynom)
+library(SuperLearner)
+library("kdensity")
+
+### Models
+
 
 
 expit <- function(x){ exp(x)/(1+exp(x)) };
@@ -37,80 +42,174 @@ n_new = length(x_new)
 df_new = data.frame(X=x_new)
 for (i in 1:nsim){
   n = n_vec[i]
+  n = 10000
   print(n)
   s <- sort(rep(1:2,n/2));
   
   # Measured covariate
-  # x <- runif(n,-1,1)
-  # x <- rnorm(n,0,1)
-  x <- 2*rbeta(n, 0.6,0.6 )-1
+  ### TODO 
+  
   # ux <- MASS::mvrnorm(n, mu = c(0,0), Sigma = matrix(c(1,0.5,0.5,1),2,2))
 
-
+  x1 <- runif(n,0,1)
+  x2 <- rnorm(n,0,2)
+  
   u <- rnorm(n,0,1)
   # Different simulation idea
+  
   # IV:
+  
   p_z = 0.5
   # Restriction: Independence from U
   z <- rbinom(n,1,prob = p_z)
   
-  # ps <- 0.2*expit(2*x) + 0.6*z + 0.1*(u>0)
-  ps <- (1-z)*(0.2*expit(2*x) + 0.1*(u>0)) + z*(exp(-1*(x^2)))
-  range(ps)
+  p_0 <- 0.25
+  alpha_z <- log(3)
+  alpha_u <-function(u){0.1*(u>0)}
+  
+  ps <- p_0*exp(alpha_z*z + alpha_u(u))
+  true_delta = mean(p_0*exp(alpha_z*1 + alpha_u(u)) - p_0*exp(alpha_u(u)))
   a <- rbinom(n,1,ps);
 
   #Restrictions: Exclusion restriction and no A,U interaction.
-  p_2 <- function(x,a,u){
-      # p_x = (x <= -.5)*0.5*(x+2)^2 + (x > -.5 & x<=0)*(x/2+0.875) +
-      # (x>0 & x<=.5)*(-5*(x-0.2)^2 +1.075) + (x>.5)*(x+0.125)
-      p_x1 = 0.8 + 0.6*x
-      p_x0 = 0.8 - 0.2*x + 5*x^2 + 10*x^3
+  p_2 <- function(a,u,z){
+    #beta_a <- function(u){1*(u>0)}
+    ## This ^ is bad for plug in
+    beta_a <- function(u){4}
 
-      
-      # p_x = (x <= -.5)*0.5 + (x > -.5 & x<=0)*1 +
-      # (x>0 & x<=.5)*-0.5 + (x>.5)*2
-
-      # f_a = 0.6
-      # f_a = (0.8 - 0.6*x)
-      # f_a = (0.8 - 0.6*x + 0.8*x^3)
-      # f_a = 1*(-0.5<x)*(x<0.5)
-      
-    return((1-a)*p_x0 + a*p_x1 + 0.5*u) 
+    beta_u <- function(u){0.5*u}
+    beta_z <- 1
+    return(beta_a(u)*a + beta_u(u) + beta_z*z)
   }
   
+  #checking assumption 6:
   
-  mu0 <- p_2(x_new,rep(0,n_new),0);
-  mu1 <- p_2(x_new,rep(1,n_new),0);
+  test_6_1 <- mean(p_2(1,u,1)-p_2(1,u,0)) == mean(p_2(0,u,1)-p_2(0,u,0))
+  u_s <- rnorm(n,0,1)
+  test_6_2 <- mean(p_2(1,u_s,1)-p_2(1,u_s,0)) == mean(p_2(1,u,1)-p_2(1,u,0))
+  test_6_3 <- mean(p_2(0,u_s,1)-p_2(0,u_s,0)) == mean(p_2(0,u,1)-p_2(0,u,0))
   
-  cate <- mu1-mu0
   
-  tau <- mean(cate)
+  
+  mu0 <- p_2(rep(0,n),u,z);
+  mu1 <- p_2(rep(1,n),u,z);
+  mu11 <- p_2(rep(1,n),u,rep(1,n));
+  mu10 <- p_2(rep(1,n),u,rep(0,n));
+  mu_1 <- p_2(a,u,rep(1,n));
+  mu_0 <- p_2(a,u,rep(0,n));
+  mu_1-mu_0
+  mu11-mu10
+  ATT <-  sum(a*mu1-a*mu0)/sum(a) 
+  
+  
+  
+  
+  
+  ######## end
+  
+  
   # outcome
   # under assumption 4.a) no A by U interaction
   error <- rnorm(n,sd=0.2)
-  y <- p_2(x,a,u) + error
-
+  y <- p_2(a,u,z) + error
+ 
   
-  df <- data.frame(X=x,Y=y,Z=z,A=a, S= s)
-  df = df[order(df$X),]
+  df <- data.frame(X1=x1,X2=x2,Y=y,Z=z,A=a, S= s)
+  cov_set = c("X1","X2")
+  partition_data <- function(df,cov_set,treat,iv){
+    full_data <- df[,cov_set]
+    treat_1 <- df[treat,cov_set]
+    treat_0 <- df[!treat,cov_set]
+    iv_1 <- df[iv,cov_set]
+    iv_0 <- df[iv,cov_set]
+    treat_1_iv_1 <- df[treat&iv,cov_set]
+    treat_1_iv_0 <- df[treat&!iv,cov_set]
+    return(list(full = full_data,
+                   t1 = treat_1,
+                   t0 = treat_0,
+                   i1 = iv_1,
+                   i0 = iv_0,
+                   t1i1 = treat_1_iv_1,
+                   t1i0 = treat_1_iv_0))
+  }
+  parts = partition_data(df,cov_set, a==1,z==1)
+  
   # function for cross fitting 1 and 2
   
   
-  ## plugin  
+  ##models
+  model_pi_1 = SuperLearner(Y = , X = , family = binomial(),SL.library = "SL.glmnet")
+
+  pi_1 = predict(model_pi_1, covars , onlySL = TRUE)[[1]]
+  model_pi_0 = SuperLearner(Y = df$A[(z==0)], X = df[(z==0),c("X1","X2")], family = binomial(),SL.library = "SL.glmnet")
+  pi_0 = predict(model_pi_0, df[,c("X1","X2")], onlySL = TRUE)[[1]]
   
-  I_1 <- df[df$S==1,]
-  I_2 <- df[df$S==2,]
   
-  m1=lm(Y~X,I_1[I_1$Z==1,])
-  m0=lm(Y~X,I_1[I_1$Z==0,])
-  EY1hat <- predict(m1,data.frame(X=x_new))
-  EY0hat <- predict(m0,data.frame(X=x_new))
-  # EY1hat <- predict(smooth.spline(I_1[I_1$Z==1,"X"],I_1[I_1$Z==1,"Y"]),x_new)$y
-  # EY0hat <- predict(smooth.spline(I_1[I_1$Z==0,"X"],I_1[I_1$Z==0,"Y"]),x_new)$y
-  EA1hat <- predict(glm(A~X, data=I_1[I_1$Z==1,], family=binomial()),data.frame(X=x_new),type="response")
-  EA0hat <- predict(glm(A~X, data=I_1[I_1$Z==0,], family=binomial()),data.frame(X=x_new),type="response")
+  delta_a = pi_1-pi_0
   
-  plugin <- (EY1hat - EY0hat)/(EA1hat - EA0hat)
+  
+  
+  model_phi_0= SuperLearner(Y = df$Y[(a == 1)&(z == 0)],
+                            X = df[(a == 1)&(z == 0),c("X1","X2")], family = gaussian(),SL.library = "SL.glmnet")
+  phi_0 = predict(model_phi_0, df[,c("X1","X2")], onlySL = TRUE)[[1]]
+
+  model_phi_1 = SuperLearner(Y = (df$Y - phi_0)[(a == 1)&(z == 1)],
+                            X = df[(a == 1)&(z == 1),c("X1","X2")], family = gaussian(),SL.library = "SL.glmnet")
+  phi_1= predict(model_phi_1, df[,c("X1","X2")], onlySL = TRUE)[[1]]
+
+  model_psi_1 = SuperLearner(Y = (df$Y-phi_1*z)[(z == 1)],
+                            X = df[(z == 1),c("X1","X2")], family = gaussian(),SL.library = "SL.glmnet")
+  psi_1 = predict(model_psi_1, df[,c("X1","X2")], onlySL = TRUE)[[1]]
+  
+  model_psi_0 = SuperLearner(Y = (df$Y)[(z == 0)],
+                            X = df[(z == 0),c("X1","X2")], family = gaussian(),SL.library = "SL.glmnet")
+  psi_0 = predict(model_psi_0, df[,c("X1","X2")], onlySL = TRUE)[[1]]
+  psi = (psi_1 - psi_0)/delta_a
+  
+  model_p_Y_0 = SuperLearner(Y = (df$Y - df$A*psi - df$Z*phi_1),
+                            X = df[,c("X1","X2")], family = gaussian(),SL.library = "SL.glmnet")
+  p_Y_0 = predict(model_p_Y_0, df[,c("X1","X2")], onlySL = TRUE)[[1]]
+  # y = Outcome
+  # z = IV
+  # a = Treatment
+  # fz = P(Z=1)(L)
+  # faz = P(A=1,Z=1)(L)
+  # pi_1 = P(A=1|Z=1)(L)
+  ## pi_0 = P(A=1|Z=0)(L)
+  # delta_a = pi_1-pi_0
+  # phi_1 = E(Y|A=1,Z=1) - E(Y|A=1,Z=0)(L)
+  # phi_0 = E(Y|A=1,Z=0)(L)
+  # psi = E([G(Y - phi_1) - (1-G)Y]/delta_a)(L)
+  # p_Y_0 = E(Y - Apsi - Gphi_1)(L)
+  # psi_0 = ATT
+  ### p_a = P(A=1)
+  EIF = function(y,z,a,fz,faz,pi_1,delta_a,phi_1,phi_0,psi,p_Y_0, psi_0){
+    p_a = mean(a)
+    nu_1 = pi_1/p_a*(2*z-1)/fz/delta_a
+    nu_2 = y - a*psi - z*phi_1 - p_Y_0
+    nu_3 = pi_1/p_a*a*(2*z-1)/faz/delta_a
+    nu_4 = y - z*phi_1 - phi_0
+    nu_5 = (a/p_a)*(psi-psi_0)
+    
+    return(nu_1*nu_2 - nu_3*nu_4 + nu_5)
+  } 
+  
+  
+  
+  # independent of L for simplicity: P(Z|L)*P(A|Z,L)
+  f_ga = p_z*ps
+  
+  # E(Y|Z = 1) - E(Y|Z = 0)-[E(Y|A = 1; Z = 1) - E (Y|A = 1; Z = 0)]
+  
+  
+  full_model = SuperLearner(Y = , X = df[,c("Z","A")], family = gaussian(),SL.library = "SL.glmnet")
+  z_model = SuperLearner(Y = df$Y, X = , family = binomial(),SL.library = "SL.glmnet")
+  m_z1 = predict(z_model,data.frame(Z=rep(1,n)))
+  m_z0 = predict(z_model,data.frame(Z=rep(0,n)))
+  
+  m_z1a1 = predict(full_model,cbind(Z=rep(1,n),A=1), onlySL = TRUE)[[1]]
+  m_z0a1 = predict(full_model,cbind(Z=rep(0,n),A=1), onlySL = TRUE)[[1]]
+  psi_0 <- mean((m_z1-m_z0 - (m_z1a1-m_z0a1))/delta_a)
   
   
   
@@ -118,8 +217,8 @@ for (i in 1:nsim){
   
   po_fitter <- function(df_train, df_test){
   
-    m1=lm(Y~X,df_train[df_train$Z==1,])
-    m0=lm(Y~X,df_train[df_train$Z==0,])
+    m1=
+    m0=
     EY1hat <- predict(m1,df_test)
     EY0hat <- predict(m0,df_test)
     # EY1hat <- predict(smooth.spline(df_train[df_train$Z==1,"X"],df_train[df_train$Z==1,"Y"]),df_test$X)$y
@@ -244,41 +343,41 @@ for (i in 1:nsim){
 ```{r}
 #plotting
 # res <- res[res$N > 100,]
-s_ = 1
-ggplot(res, aes(x = N))+
-  
-  # geom_line(aes(y = ls_bs, colour = "ls_bs"), linewidth = s_)+
-  geom_line(aes(y = forster_bs_cross, colour = "FW w/ bs"), linewidth = s_)+
-  
-  # geom_line(aes(y = ls_ns, colour = "ls_ns"), linewidth = s_)+
-  geom_line(aes(y = forster_ns_cross, colour = "FW w/ ns"), linewidth = s_)+
-  
-  # geom_line(aes(y = ls_poly, colour = "ls_poly"), linewidth = s_)+
-  geom_line(aes(y = forster_poly_cross, colour = "FW w/ poly"), linewidth = s_)+
-  
-  geom_line(aes(y = plugin, colour = "plugin"), linewidth = s_)+
-  scale_color_manual(values=c("#66A61E","#1B9E77","#E6AB02","#E7298A"))+
-  # scale_color_manual(values=c("#1B9E77", "#D95F02", "#7570B3" ,"#E7298A"))+
-  ggtitle("Mean Squared Error comparison over [-1,1]")+
-  xlab("Number of observations")+
-  ylab("MSE")
+# s_ = 1
+# ggplot(res, aes(x = N))+
+#   
+#   # geom_line(aes(y = ls_bs, colour = "ls_bs"), linewidth = s_)+
+#   geom_line(aes(y = forster_bs_cross, colour = "FW w/ bs"), linewidth = s_)+
+#   
+#   # geom_line(aes(y = ls_ns, colour = "ls_ns"), linewidth = s_)+
+#   geom_line(aes(y = forster_ns_cross, colour = "FW w/ ns"), linewidth = s_)+
+#   
+#   # geom_line(aes(y = ls_poly, colour = "ls_poly"), linewidth = s_)+
+#   geom_line(aes(y = forster_poly_cross, colour = "FW w/ poly"), linewidth = s_)+
+#   
+#   geom_line(aes(y = plugin, colour = "plugin"), linewidth = s_)+
+#   scale_color_manual(values=c("#66A61E","#1B9E77","#E6AB02","#E7298A"))+
+#   # scale_color_manual(values=c("#1B9E77", "#D95F02", "#7570B3" ,"#E7298A"))+
+#   ggtitle("Mean Squared Error comparison over [-1,1]")+
+#   xlab("Number of observations")+
+#   ylab("MSE")
 ```
 
 
 ```{r}
 
-temp_df = cbind(x_new,forster_bs_cross,forster_poly_cross)
-ggplot(temp_df) + 
-  geom_line(aes(x=x_new,cate,color = "True"), linewidth = s_) +
-  geom_line(aes(x=x_new,y=forster_bs_cross,color = "FW w/ bs"), linewidth = s_) + 
-  geom_line(aes(x=x_new,y=forster_ns_cross,color = "FW w/ ns "), linewidth = s_) +
-  geom_line(aes(x=x_new,y=forster_poly_cross,color="FW w/ polynomial"), linewidth = s_) +
-  geom_line(aes(x=x_new,plugin,color="plugin"), linewidth = s_) +
-
-  ggtitle("CATE Function Estimates")+
-  xlab("X")+
-  ylab("CATE(X)")+
-  scale_color_manual(name="Function",values=c("#66A61E","#1B9E77","#E6AB02","#E7298A","black"))
+# temp_df = cbind(x_new,forster_bs_cross,forster_poly_cross)
+# ggplot(temp_df) + 
+#   geom_line(aes(x=x_new,cate,color = "True"), linewidth = s_) +
+#   geom_line(aes(x=x_new,y=forster_bs_cross,color = "FW w/ bs"), linewidth = s_) + 
+#   geom_line(aes(x=x_new,y=forster_ns_cross,color = "FW w/ ns "), linewidth = s_) +
+#   geom_line(aes(x=x_new,y=forster_poly_cross,color="FW w/ polynomial"), linewidth = s_) +
+#   geom_line(aes(x=x_new,plugin,color="plugin"), linewidth = s_) +
+# 
+#   ggtitle("CATE Function Estimates")+
+#   xlab("X")+
+#   ylab("CATE(X)")+
+#   scale_color_manual(name="Function",values=c("#66A61E","#1B9E77","#E6AB02","#E7298A","black"))
 
 
 
@@ -287,18 +386,7 @@ ggplot(temp_df) +
 
 
 ```{r}
-# ALT data generation
-# 
-# x <- runif(n,-1,1)
-# beta_x <-  + tanh(x)/delta_x
-# 
-# #P(A|Z=1)=delta_x + P(A|Z=0)
-# delta_x <- tanh(0.5*x)
-# alpha_x0 <- expit(x + log(3))
-# alpha_x1 <- delta_x + alpha_x0
-# range(alpha_x1)
-# alpha_x <-
-# eta_x <- 
+
 ```
 
 
