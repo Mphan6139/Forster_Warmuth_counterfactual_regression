@@ -53,6 +53,7 @@ for (i in 1:nsim){
 
   x1 <- runif(n,0,1)
   x2 <- rnorm(n,0,2)
+  x <- cbind(x1,x2)
   
   u <- rnorm(n,0,1)
   # Different simulation idea
@@ -63,13 +64,16 @@ for (i in 1:nsim){
   # Restriction: Independence from U
   z <- rbinom(n,1,prob = p_z)
   
-  p_0 <- 0.25
-  alpha_z <- log(3)
-  alpha_u <-function(u){0.1*(u>0)}
-  
-  ps <- p_0*exp(alpha_z*z + alpha_u(u))
-  true_delta = mean(p_0*exp(alpha_z*1 + alpha_u(u)) - p_0*exp(alpha_u(u)))
-  a <- rbinom(n,1,ps);
+  ps <- function(z,u){
+    p_0 <- 0.25
+    alpha_z <- log(3)
+    alpha_u <-function(u){0.1*(u>0)}
+    return(p_0*exp(alpha_z*z + alpha_u(u)))
+  }
+  ps1 <- ps(1,0)
+  ps0 <- ps(0,0)
+  true_delta = ps1-ps0
+  a <- rbinom(n,1,ps(z,u));
 
   #Restrictions: Exclusion restriction and no A,U interaction.
   p_2 <- function(a,u,z){
@@ -91,14 +95,7 @@ for (i in 1:nsim){
   
   
   
-  mu0 <- p_2(rep(0,n),u,z);
-  mu1 <- p_2(rep(1,n),u,z);
-  mu11 <- p_2(rep(1,n),u,rep(1,n));
-  mu10 <- p_2(rep(1,n),u,rep(0,n));
-  mu_1 <- p_2(a,u,rep(1,n));
-  mu_0 <- p_2(a,u,rep(0,n));
-  mu_1-mu_0
-  mu11-mu10
+  
   ATT <-  sum(a*mu1-a*mu0)/sum(a) 
   
   
@@ -111,80 +108,103 @@ for (i in 1:nsim){
   # outcome
   # under assumption 4.a) no A by U interaction
   error <- rnorm(n,sd=0.2)
-  y <- p_2(a,u,z) + error
+  beta_x = as.matrix(c(1,-1),nrow=2)
+  y <- p_2(a,u,z) + x%*%beta_x + error
  
   
-  df <- data.frame(X1=x1,X2=x2,Y=y,Z=z,A=a, S= s)
-  cov_set = c("X1","X2")
-  partition_data <- function(df,cov_set,treat,iv){
-    full_data <- df[,cov_set]
-    treat_1 <- df[treat,cov_set]
-    treat_0 <- df[!treat,cov_set]
-    iv_1 <- df[iv,cov_set]
-    iv_0 <- df[iv,cov_set]
-    treat_1_iv_1 <- df[treat&iv,cov_set]
-    treat_1_iv_0 <- df[treat&!iv,cov_set]
-    return(list(full = full_data,
-                   t1 = treat_1,
-                   t0 = treat_0,
+  # df <- data.frame(X1=x1,X2=x2,Y=y,Z=z,A=a, S= s)
+  partition_data <- function(y,x,a,z){
+    df <- data.frame(cbind(y,x))
+    treat_1 <- df[(a==1),]
+    treat_0 <- df[(a==0),]
+    iv_1 <- df[(z==1),]
+    iv_0 <- df[(z==0),]
+    treat_1_iv_1 <- df[(a==1)&(z==1),]
+    treat_1_iv_0 <- df[(a==1)&(z==0),]
+    return(list(full = df,
+                   a1 = treat_1,
+                   a0 = treat_0,
                    i1 = iv_1,
                    i0 = iv_0,
-                   t1i1 = treat_1_iv_1,
-                   t1i0 = treat_1_iv_0))
+                   a1i1 = treat_1_iv_1,
+                   a1i0 = treat_1_iv_0))
   }
-  parts = partition_data(df,cov_set, a==1,z==1)
   
   # function for cross fitting 1 and 2
   
   
   ##models
-  model_pi_1 = SuperLearner(Y = , X = , family = binomial(),SL.library = "SL.glmnet")
+  nuissance_models = function(y, x, a, z){
+    parts = partition_data( y, x, a, z)
+    full = parts$full
+    a1 = parts$a1
+    a0 = parts$a0
+    i1 = parts$i1
+    i0 = parts$i0
+    a1i1 = parts$a1i1
+    a1i0 = parts$a1i0
+    model_pi_1 = SuperLearner(Y = a[(z==1)], X = i1[-1], family = binomial(),SL.library = "SL.glmnet")
+    model_pi_0 = SuperLearner(Y = a[(z==0)], X = i0[-1], family = binomial(),SL.library = "SL.glmnet")
+    pi_1 = predict(model_pi_1, x , onlySL = TRUE)[[1]]
+    pi_0 = predict(model_pi_0, x , onlySL = TRUE)[[1]]
 
-  pi_1 = predict(model_pi_1, covars , onlySL = TRUE)[[1]]
-  model_pi_0 = SuperLearner(Y = df$A[(z==0)], X = df[(z==0),c("X1","X2")], family = binomial(),SL.library = "SL.glmnet")
-  pi_0 = predict(model_pi_0, df[,c("X1","X2")], onlySL = TRUE)[[1]]
+    model_y_a1i0 = SuperLearner(Y = a1i0[[1]],X = a1i0[-1], family = gaussian(),SL.library = "SL.glmnet")
+    model_y_a1i1 = SuperLearner(Y = a1i1[[1]],X = a1i1[-1], family = gaussian(),SL.library = "SL.glmnet")
+    
+    phi_0 = predict(model_y_a1i0, x, onlySL = TRUE)[[1]]
+    Ey_a1i1 = predict(model_y_a1i1, x, onlySL = TRUE)[[1]]
+    phi_1 = Ey_a1i1-phi_0
+    
+    model_y_i1 = SuperLearner(Y = i1[[1]],X = i1[-1], family = gaussian(),SL.library = "SL.glmnet")
+    model_y_i0 = SuperLearner(Y = i0[[1]],X = i0[-1], family = gaussian(),SL.library = "SL.glmnet")
+    
+    Ey_i1 = predict(model_y_i1, x, onlySL = TRUE)[[1]]
+    Ey_i0 = predict(model_y_i0, x, onlySL = TRUE)[[1]]
+    psi = (Ey_i1-z*phi_1 - Ey_i0)/(pi_1-pi_0)
+    
+    model_p_Y_0 = SuperLearner(Y = (full[[1]] - a*psi - z*phi_1), X = data.frame(x), family = gaussian(),SL.library = "SL.glmnet")
+    p_Y_0 = predict(model_p_Y_0, data.frame(x), onlySL = TRUE)[[1]]
+    
+    model_p_Z = SuperLearner(Y = z, X = data.frame(x), family = gaussian(),SL.library = "SL.glmnet")
+    p_z = predict(model_p_Z, data.frame(x), onlySL = TRUE)[[1]]
+    
+    model_p_AZ = SuperLearner(Y = a, X = data.frame(x,z), family = gaussian(),SL.library = "SL.glmnet")
+    p_AZ = predict(model_p_AZ, data.frame(x,z), onlySL = TRUE)[[1]]
+    
+    return(data.frame(list(Pi_1 = pi_1,
+                Pi_0 = pi_0,
+                Phi_1 = phi_1,
+                Phi_0 = phi_0,
+                Psi = psi,
+                P_Y_0 = p_Y_0,
+                P_z = p_z,
+                P_az = p_az)))
+  }
+  
+  nuisance = nuisance_models(y, x, a,z)
   
   
-  delta_a = pi_1-pi_0
   
-  
-  
-  model_phi_0= SuperLearner(Y = df$Y[(a == 1)&(z == 0)],
-                            X = df[(a == 1)&(z == 0),c("X1","X2")], family = gaussian(),SL.library = "SL.glmnet")
-  phi_0 = predict(model_phi_0, df[,c("X1","X2")], onlySL = TRUE)[[1]]
 
-  model_phi_1 = SuperLearner(Y = (df$Y - phi_0)[(a == 1)&(z == 1)],
-                            X = df[(a == 1)&(z == 1),c("X1","X2")], family = gaussian(),SL.library = "SL.glmnet")
-  phi_1= predict(model_phi_1, df[,c("X1","X2")], onlySL = TRUE)[[1]]
-
-  model_psi_1 = SuperLearner(Y = (df$Y-phi_1*z)[(z == 1)],
-                            X = df[(z == 1),c("X1","X2")], family = gaussian(),SL.library = "SL.glmnet")
-  psi_1 = predict(model_psi_1, df[,c("X1","X2")], onlySL = TRUE)[[1]]
   
-  model_psi_0 = SuperLearner(Y = (df$Y)[(z == 0)],
-                            X = df[(z == 0),c("X1","X2")], family = gaussian(),SL.library = "SL.glmnet")
-  psi_0 = predict(model_psi_0, df[,c("X1","X2")], onlySL = TRUE)[[1]]
-  psi = (psi_1 - psi_0)/delta_a
   
-  model_p_Y_0 = SuperLearner(Y = (df$Y - df$A*psi - df$Z*phi_1),
-                            X = df[,c("X1","X2")], family = gaussian(),SL.library = "SL.glmnet")
-  p_Y_0 = predict(model_p_Y_0, df[,c("X1","X2")], onlySL = TRUE)[[1]]
+  
   # y = Outcome
   # z = IV
   # a = Treatment
-  # fz = P(Z=1)(L)
-  # faz = P(A=1,Z=1)(L)
+  ## fz = P(Z=1)(L)
+  ## faz = P(A=1,Z=1)(L)
   # pi_1 = P(A=1|Z=1)(L)
-  ## pi_0 = P(A=1|Z=0)(L)
-  # delta_a = pi_1-pi_0
+  # pi_0 = P(A=1|Z=0)(L)
   # phi_1 = E(Y|A=1,Z=1) - E(Y|A=1,Z=0)(L)
   # phi_0 = E(Y|A=1,Z=0)(L)
   # psi = E([G(Y - phi_1) - (1-G)Y]/delta_a)(L)
   # p_Y_0 = E(Y - Apsi - Gphi_1)(L)
   # psi_0 = ATT
   ### p_a = P(A=1)
-  EIF = function(y,z,a,fz,faz,pi_1,delta_a,phi_1,phi_0,psi,p_Y_0, psi_0){
+  EIF = function(y,z,a,fz,faz,pi_1,pi_0,phi_1,phi_0,psi,p_Y_0, psi_0){
     p_a = mean(a)
+    delta_a = pi_1-pi_0
     nu_1 = pi_1/p_a*(2*z-1)/fz/delta_a
     nu_2 = y - a*psi - z*phi_1 - p_Y_0
     nu_3 = pi_1/p_a*a*(2*z-1)/faz/delta_a
@@ -203,7 +223,8 @@ for (i in 1:nsim){
   
   
   full_model = SuperLearner(Y = , X = df[,c("Z","A")], family = gaussian(),SL.library = "SL.glmnet")
-  z_model = SuperLearner(Y = df$Y, X = , family = binomial(),SL.library = "SL.glmnet")
+  z_model = SuperLearner(Y = , X = , family = binomial(),SL.library = "SL.glmnet")
+  
   m_z1 = predict(z_model,data.frame(Z=rep(1,n)))
   m_z0 = predict(z_model,data.frame(Z=rep(0,n)))
   
@@ -215,25 +236,7 @@ for (i in 1:nsim){
   
   # FW 
   
-  po_fitter <- function(df_train, df_test){
-  
-    m1=
-    m0=
-    EY1hat <- predict(m1,df_test)
-    EY0hat <- predict(m0,df_test)
-    # EY1hat <- predict(smooth.spline(df_train[df_train$Z==1,"X"],df_train[df_train$Z==1,"Y"]),df_test$X)$y
-    # EY0hat <- predict(smooth.spline(df_train[df_train$Z==0,"X"],df_train[df_train$Z==0,"Y"]),df_test$X)$y
-    EA1hat <- predict(glm(A~X, data=df_train[df_train$Z==1,], family=binomial()),data.frame(X=df_test$X),type="response")
-    EA0hat <- predict(glm(A~X, data=df_train[df_train$Z==0,], family=binomial()),data.frame(X=df_test$X),type="response")
-    
-   
-    deltahat <- (EA1hat - EA0hat)
-    betahat <- (EY1hat-EY0hat)/(EA1hat - EA0hat)
-    f_z <- p_z*df_test$Z + (1-p_z)*(1-df_test$Z)
-    
-    pseudoIV <- (2*df_test$Z - 1)/f_z * (df_test$Y - df_test$A*betahat - EY0hat + EA0hat*betahat)/deltahat + betahat
-  }
-  
+ 
   I_1 <- df[df$S==1,]
   I_2 <- df[df$S==2,]
   I_1$Psuedo = po_fitter(I_2,I_1)
