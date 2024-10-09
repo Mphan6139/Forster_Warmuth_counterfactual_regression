@@ -37,139 +37,125 @@ var_mat$N = n_vec
 res$N = n_vec
 cate_hat_mat$N = n_vec
 
-x_new = seq(from = -1, to = 1, by = 0.1) 
-n_new = length(x_new)
-df_new = data.frame(X=x_new)
+# x_new = seq(from = -1, to = 1, by = 0.1) 
+# n_new = length(x_new)
+# df_new = data.frame(X=x_new)
+datagen_N = function(n){
+    # Covariates:
+    x1 <- runif(n,0,1)
+    x2 <- rnorm(n,0,2)
+    x <- cbind(x1,x2)
+    u <- rnorm(n,0,1)
+    
+    ### Correlated
+    # ux <- MASS::mvrnorm(n, mu = c(0,0), Sigma = matrix(c(1,0.5,0.5,1),2,2))
+    ###
+    
+    # IV:
+    # Restriction: Independence from U
+    p_z = 0.5
+    z <- rbinom(n,1,prob = p_z)
+    
+    # Treatment:
+    ps <- function(z,u){
+      p_0 <- 0.25
+      alpha_z <- log(3)
+      alpha_u <-function(u){0.1*(u>0)}
+      return(p_0*exp(alpha_z*z + alpha_u(u)))
+    }
+    a <- rbinom(n,1,ps(z,u));
+
+    # Outcome
+    # Restrictions: Exclusion restriction and no A,U interaction.
+    p_2 <- function(Z,U,A,X){
+      #beta_a <- function(u){1*(u>0)}
+      beta_a <- function(u){4}
+  
+      beta_u <- function(u){0.5*u}
+      beta_z <- 1
+      beta_x = as.matrix(c(1,-1),nrow=2)
+
+      return(beta_a(U)*A + beta_u(U) + beta_z*Z + X%*%beta_x)
+    }
+    error <- rnorm(n,sd=0.2)
+    y <- p_2(Z=z,U=u,A=a,X=x) + error
+    
+    test_6_1 <- mean(p_2(Z=1,U=u,A=1,X=x)-p_2(Z=1,U=u,A=0,X=x)) == mean(p_2(Z=0,U=u,A=1,X=x)-p_2(Z=0,U=u,A=0,X=x))
+
+    u_s <- rnorm(n,0,1)
+    test_6_2 <- mean(p_2(Z=1,U=u_s,A=1,X=x)-p_2(Z=1,U=u_s,A=0,X=x)) ==
+                mean(p_2(Z=1,U=u,  A=1,X=x)-p_2(Z=1,U=u,  A=0,X=x))
+    test_6_3 <- mean(p_2(Z=0,U=u_s,A=1,X=x)-p_2(Z=0,U=u_s,A=0,X=x)) ==
+                mean(p_2(Z=0,U=u,  A=1,X=x)-p_2(Z=0,U=u,  A=0,X=x))
+    
+    if(!(test_6_1&test_6_2&test_6_3)){
+        stop("assumptions violated!")
+    }
+    
+    mu1z <- p_2(Z=z,U=u,A=rep(1,n),X=x) + error
+    mu0z <- p_2(Z=z,U=u,A=rep(0,n),X=x) + error
+    ATT <-  sum(a*mu1z-a*mu0z)/sum(a) 
+    df <- data.frame(X1=x1,X2=x2,Y=y,Z=z,A=a,Y1 = mu1z, Y0 = mu0z)
+
+    return(df)
+  
+}
+
 for (i in 1:nsim){
   n = n_vec[i]
   n = 10000
   print(n)
-  s <- sort(rep(1:2,n/2));
-  
-  # Measured covariate
-  ### TODO 
-  
-  # ux <- MASS::mvrnorm(n, mu = c(0,0), Sigma = matrix(c(1,0.5,0.5,1),2,2))
-
-  x1 <- runif(n,0,1)
-  x2 <- rnorm(n,0,2)
-  x <- cbind(x1,x2)
-  
-  u <- rnorm(n,0,1)
-  # Different simulation idea
-  
-  # IV:
-  
-  p_z = 0.5
-  # Restriction: Independence from U
-  z <- rbinom(n,1,prob = p_z)
-  
-  ps <- function(z,u){
-    p_0 <- 0.25
-    alpha_z <- log(3)
-    alpha_u <-function(u){0.1*(u>0)}
-    return(p_0*exp(alpha_z*z + alpha_u(u)))
-  }
-  ps1 <- ps(1,0)
-  ps0 <- ps(0,0)
-  true_delta = ps1-ps0
-  a <- rbinom(n,1,ps(z,u));
-
-  #Restrictions: Exclusion restriction and no A,U interaction.
-  p_2 <- function(a,u,z){
-    #beta_a <- function(u){1*(u>0)}
-    ## This ^ is bad for plug in
-    beta_a <- function(u){4}
-
-    beta_u <- function(u){0.5*u}
-    beta_z <- 1
-    return(beta_a(u)*a + beta_u(u) + beta_z*z)
-  }
-  
-  #checking assumption 6:
-  
-  test_6_1 <- mean(p_2(1,u,1)-p_2(1,u,0)) == mean(p_2(0,u,1)-p_2(0,u,0))
-  u_s <- rnorm(n,0,1)
-  test_6_2 <- mean(p_2(1,u_s,1)-p_2(1,u_s,0)) == mean(p_2(1,u,1)-p_2(1,u,0))
-  test_6_3 <- mean(p_2(0,u_s,1)-p_2(0,u_s,0)) == mean(p_2(0,u,1)-p_2(0,u,0))
   
   
-  
-  
-  ATT <-  sum(a*mu1-a*mu0)/sum(a) 
-  
-  
-  
-  
-  
-  ######## end
-  
-  
-  # outcome
-  # under assumption 4.a) no A by U interaction
-  error <- rnorm(n,sd=0.2)
-  beta_x = as.matrix(c(1,-1),nrow=2)
-  y <- p_2(a,u,z) + x%*%beta_x + error
  
-  
-  # df <- data.frame(X1=x1,X2=x2,Y=y,Z=z,A=a, S= s)
-  partition_data <- function(y,x,a,z){
-    df <- data.frame(cbind(y,x))
-    treat_1 <- df[(a==1),]
-    treat_0 <- df[(a==0),]
-    iv_1 <- df[(z==1),]
-    iv_0 <- df[(z==0),]
-    treat_1_iv_1 <- df[(a==1)&(z==1),]
-    treat_1_iv_0 <- df[(a==1)&(z==0),]
-    return(list(full = df,
-                   a1 = treat_1,
-                   a0 = treat_0,
-                   i1 = iv_1,
-                   i0 = iv_0,
-                   a1i1 = treat_1_iv_1,
-                   a1i0 = treat_1_iv_0))
-  }
-  
-  # function for cross fitting 1 and 2
   
   
   ##models
-  nuissance_models = function(y, x, a, z){
-    parts = partition_data( y, x, a, z)
-    full = parts$full
-    a1 = parts$a1
-    a0 = parts$a0
-    i1 = parts$i1
-    i0 = parts$i0
-    a1i1 = parts$a1i1
-    a1i0 = parts$a1i0
-    model_pi_1 = SuperLearner(Y = a[(z==1)], X = i1[-1], family = binomial(),SL.library = "SL.glmnet")
-    model_pi_0 = SuperLearner(Y = a[(z==0)], X = i0[-1], family = binomial(),SL.library = "SL.glmnet")
-    pi_1 = predict(model_pi_1, x , onlySL = TRUE)[[1]]
-    pi_0 = predict(model_pi_0, x , onlySL = TRUE)[[1]]
+  nuisance_models = function(y, x, a, z){
+    
+    model_z = SuperLearner(Y = z, X = data.frame(x), family = binomial(),SL.library = "SL.glmnet")
+    model_a = SuperLearner(Y = a, X = data.frame(x,Z=z), family = binomial(),SL.library = "SL.glmnet")
+    
+    
+    model_y_za = SuperLearner(Y = y,
+                              X = data.frame(x,Z=z,A=a),
+                              family = gaussian(),
+                              SL.library = "SL.glmnet")
+    model_y_z = SuperLearner(Y = y,
+                             X = data.frame(x,Z=z),
+                             family = gaussian(),
+                             SL.library = "SL.glmnet")
+    
+    
+    
 
-    model_y_a1i0 = SuperLearner(Y = a1i0[[1]],X = a1i0[-1], family = gaussian(),SL.library = "SL.glmnet")
-    model_y_a1i1 = SuperLearner(Y = a1i1[[1]],X = a1i1[-1], family = gaussian(),SL.library = "SL.glmnet")
+    #for phi_1
+    Ey_a1i1 = predict(model_y_za, data.frame(x,Z=1,A=1), onlySL = TRUE)[[1]]
     
-    phi_0 = predict(model_y_a1i0, x, onlySL = TRUE)[[1]]
-    Ey_a1i1 = predict(model_y_a1i1, x, onlySL = TRUE)[[1]]
+    # for psi
+    Ey_i1 = predict(model_y_z, data.frame(x,Z=1), onlySL = TRUE)[[1]]
+    Ey_i0 = predict(model_y_z, data.frame(x,Z=0), onlySL = TRUE)[[1]]
+    # is there supposed to be a z*phi_1 or just phi_1?
+    
+    #for p_Y_0
+    p_Y = predict(model_y_za, data.frame(x,A=a,Z=z), onlySL = TRUE)[[1]]
+    
+    #for EIF
+    p_z = predict(model_z, data.frame(x), onlySL = TRUE)[[1]]
+    p_az = predict(model_a, data.frame(x,Z=z), onlySL = TRUE)[[1]]
+    
+    
+    pi_1 = predict(model_a, data.frame(x,Z=1) , onlySL = TRUE)[[1]]
+    pi_0 = predict(model_a, data.frame(x,Z=0) , onlySL = TRUE)[[1]]
+    phi_0 = predict(model_y_za, data.frame(x,Z=0,A=1), onlySL = TRUE)[[1]]
+    
+    
     phi_1 = Ey_a1i1-phi_0
+    psi = (Ey_i1 - Ey_i0-phi_1)/(pi_1-pi_0)
+    p_Y_0 = p_Y - a*psi - z*phi_1
     
-    model_y_i1 = SuperLearner(Y = i1[[1]],X = i1[-1], family = gaussian(),SL.library = "SL.glmnet")
-    model_y_i0 = SuperLearner(Y = i0[[1]],X = i0[-1], family = gaussian(),SL.library = "SL.glmnet")
     
-    Ey_i1 = predict(model_y_i1, x, onlySL = TRUE)[[1]]
-    Ey_i0 = predict(model_y_i0, x, onlySL = TRUE)[[1]]
-    psi = (Ey_i1-z*phi_1 - Ey_i0)/(pi_1-pi_0)
-    
-    model_p_Y_0 = SuperLearner(Y = (full[[1]] - a*psi - z*phi_1), X = data.frame(x), family = gaussian(),SL.library = "SL.glmnet")
-    p_Y_0 = predict(model_p_Y_0, data.frame(x), onlySL = TRUE)[[1]]
-    
-    model_p_Z = SuperLearner(Y = z, X = data.frame(x), family = gaussian(),SL.library = "SL.glmnet")
-    p_z = predict(model_p_Z, data.frame(x), onlySL = TRUE)[[1]]
-    
-    model_p_AZ = SuperLearner(Y = a, X = data.frame(x,z), family = gaussian(),SL.library = "SL.glmnet")
-    p_AZ = predict(model_p_AZ, data.frame(x,z), onlySL = TRUE)[[1]]
+
     
     return(data.frame(list(Pi_1 = pi_1,
                 Pi_0 = pi_0,
@@ -178,164 +164,55 @@ for (i in 1:nsim){
                 Psi = psi,
                 P_Y_0 = p_Y_0,
                 P_z = p_z,
-                P_az = p_az)))
+                P_az = p_az*p_z)))
   }
-  
-  nuisance = nuisance_models(y, x, a,z)
-  
-  
-  
-
-  
   
   
   # y = Outcome
   # z = IV
   # a = Treatment
-  ## fz = P(Z=1)(L)
-  ## faz = P(A=1,Z=1)(L)
+  # fz = P(Z=1)(L)
+  # faz = P(A=1,Z=1)(L)
   # pi_1 = P(A=1|Z=1)(L)
   # pi_0 = P(A=1|Z=0)(L)
   # phi_1 = E(Y|A=1,Z=1) - E(Y|A=1,Z=0)(L)
   # phi_0 = E(Y|A=1,Z=0)(L)
   # psi = E([G(Y - phi_1) - (1-G)Y]/delta_a)(L)
   # p_Y_0 = E(Y - Apsi - Gphi_1)(L)
-  # psi_0 = ATT
+  # plugin = ATT
   ### p_a = P(A=1)
-  EIF = function(y,z,a,fz,faz,pi_1,pi_0,phi_1,phi_0,psi,p_Y_0, psi_0){
-    p_a = mean(a)
+  
+  
+  nuisance = nuisance_models(y, x, a, z)
+  
+  p_a = mean(a)
+  pi_1 = nuisance$Pi_1
+  pi_0 = nuisance$Pi_0
+  p_z = nuisance$P_z
+  p_az = nuisance$P_az
+  phi_1 = nuisance$Phi_1
+  phi_0 = nuisance$Phi_0
+  psi = nuisance$Psi
+  p_Y_0 = nuisance$P_Y_0
+  plugin = mean(a/p_a*psi)
+
+  EIF = function(a,z,p_a,pi_1,pi_0,p_z,p_az,phi_1,phi_0,psi,p_Y_0,plugin){
+    #plugin: E(psi|A=1)
+    #(fz,faz,pi_1,pi_0,phi_1,phi_0,psi,p_Y_0)
     delta_a = pi_1-pi_0
-    nu_1 = pi_1/p_a*(2*z-1)/fz/delta_a
+
+    nu_1 = pi_1/p_a*(2*z-1)/p_z/delta_a
     nu_2 = y - a*psi - z*phi_1 - p_Y_0
-    nu_3 = pi_1/p_a*a*(2*z-1)/faz/delta_a
+    nu_3 = pi_1/p_a*a*(2*z-1)/p_az/delta_a
     nu_4 = y - z*phi_1 - phi_0
-    nu_5 = (a/p_a)*(psi-psi_0)
+    nu_5 = (a/p_a)*(psi-plugin)
     
     return(nu_1*nu_2 - nu_3*nu_4 + nu_5)
   } 
-  
-  
-  
-  # independent of L for simplicity: P(Z|L)*P(A|Z,L)
-  f_ga = p_z*ps
-  
-  # E(Y|Z = 1) - E(Y|Z = 0)-[E(Y|A = 1; Z = 1) - E (Y|A = 1; Z = 0)]
-  
-  
-  full_model = SuperLearner(Y = , X = df[,c("Z","A")], family = gaussian(),SL.library = "SL.glmnet")
-  z_model = SuperLearner(Y = , X = , family = binomial(),SL.library = "SL.glmnet")
-  
-  m_z1 = predict(z_model,data.frame(Z=rep(1,n)))
-  m_z0 = predict(z_model,data.frame(Z=rep(0,n)))
-  
-  m_z1a1 = predict(full_model,cbind(Z=rep(1,n),A=1), onlySL = TRUE)[[1]]
-  m_z0a1 = predict(full_model,cbind(Z=rep(0,n),A=1), onlySL = TRUE)[[1]]
-  psi_0 <- mean((m_z1-m_z0 - (m_z1a1-m_z0a1))/delta_a)
-  
-  
-  
-  # FW 
-  
- 
-  I_1 <- df[df$S==1,]
-  I_2 <- df[df$S==2,]
-  I_1$Psuedo = po_fitter(I_2,I_1)
-  I_2$Psuedo = po_fitter(I_1,I_2)
-  
 
- 
-
-  ## construct estimators
-  # forster_poly = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "poly")[[1]]
-  # forster_ns = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "ns")[[1]]
-  # forster_bs = series_df(I_1$X,I_1$PsuedoO,I_2$X,df=4, type = "forster", basis_type = "bs")[[1]]
-
-  
-  
-  CV_DF <- function(X,Y,df_grid=NULL,type,basis_type, KK=5){
-    n = length(X) 
-    s_test = floor(n/log(n))
-    if (is.null(df_grid)){
-      df_grid = seq(4,18, by = 2)
-      if (basis_type == "bs"){df_grid = seq(50,200, by = 15)}
-    }
-    l = length(df_grid)
-    mse_grid_cv = matrix(NA,l, KK)
-    estimator_list = D_list = rep(NA,KK)
-    for (k in seq(KK)){
-      cat(paste0(k,"/", KK,' '))
-      ind_test = sample(1:n, size = s_test) 
-      
-      g(train_X, train_Y) %=% list(X[-ind_test],  Y[-ind_test])
-      g(test_X, test_Y) %=% list(X[ind_test],  Y[ind_test])
-      for (i in 1:l){
-        df_temp = df_grid[i]
-        temp =  series_df(X = train_X, Y=train_Y, x_pred = test_X, df = df_temp ,type = type, basis_type = basis_type)[[1]]
-        mse_grid_cv[i,k] = mean((temp - test_Y)^2)
-      }
-    }
-    mean_mses = rowMeans(mse_grid_cv)
-    ind = which(mean_mses==min(mean_mses))[[1]]
-    return(df_grid[ind])
-  }
-  
-  
-  cross_fit <- function(x_test,x_1, x_2, y_1,y_2,type_,basis_, deg){
-    
-    
-    forster_1 = series_df(x_1,y_1,x_test,df=deg, type = type_, basis_type = basis_)[[1]]
-    forster_2 = series_df(x_2,y_2,x_test,df=deg, type = type_, basis_type = basis_)[[1]]
-    # print(degf_1)
-    # print(degf_2)
-    return(1/2*(forster_1+forster_2))
-  
-  }
-  deg_poly = CV_DF(df$X,df$Y,type="forster",basis_type="poly")
-  forster_poly_cross = cross_fit(df_new$X,I_1$X, I_2$X, I_1$Psuedo,I_2$Psuedo,"forster" , "poly",deg_poly)
-  
-  deg_ns = CV_DF(df$X,df$Y,type="forster",basis_type="ns")
-  forster_ns_cross = cross_fit(df_new$X,I_1$X, I_2$X, I_1$Psuedo,I_2$Psuedo, "forster" , "ns",deg_ns)
-  
-  deg_bs = CV_DF(df$X,df$Y,type="forster",basis_type="bs")
-  forster_bs_cross = cross_fit(df_new$X,I_1$X, I_2$X, I_1$Psuedo,I_2$Psuedo,"forster" , "bs",deg_bs)
-
-  # ls_poly = cross_fit(df_new$X,I_1$X, I_2$X, I_1$Psuedo,I_2$Psuedo,"ls" , "poly",deg_poly)
-  # ls_ns = cross_fit(df_new$X,I_1$X, I_2$X, I_1$Psuedo,I_2$Psuedo,"ls" , "bs",deg_ns)
-  # ls_bs =cross_fit(df_new$X,I_1$X, I_2$X, I_1$Psuedo,I_2$Psuedo,"ls" , "ns",deg_bs)
-
-  
-  
-  
-
-  ## save MSEs
-  res$plugin[i] <- mean((plugin-cate)^2)
-  # res$forster_poly[i] <- mean((forster_poly-cate)^2)
-  # res$forster_ns[i] <- mean((forster_ns-cate)^2)
-  # res$forster_bs[i] <- mean((forster_bs-cate)^2)
-  
-  res$forster_poly_cross[i] <- mean((forster_poly_cross-cate)^2)
-  res$forster_ns_cross[i] <- mean((forster_ns_cross-cate)^2)
-  res$forster_bs_cross[i] <- mean((forster_bs_cross-cate)^2)
-  
-  
-  # res$ls_poly[i] <-mean((ls_poly-cate)^2)
-  # res$ls_ns[i] <- mean((ls_ns-cate)^2)
-  # res$ls_bs[i] <- mean((ls_bs -cate)^2)
-  
-  # cate_hat_mat$plugin[i] <- mean(plugin)
-  # cate_hat_mat$forster_poly[i] <- mean(forster_poly)
-  # cate_hat_mat$forster_ns[i] <- mean(forster_ns)
-  # cate_hat_mat$forster_bs[i] <- mean(forster_bs)
-  # cate_hat_mat$forster_poly_cross[i] <- mean(forster_poly_cross)
-  # cate_hat_mat$forster_ns_cross[i] <- mean(forster_ns_cross)
-  # cate_hat_mat$forster_bs_cross[i] <- mean(forster_bs_cross)
-  # 
-  # cate_hat_mat$ls_poly[i] <-mean(ls_poly)
-  # cate_hat_mat$ls_ns[i] <- mean(ls_ns)
-  # cate_hat_mat$ls_bs[i] <- mean(ls_bs)
-  
-  
-  
+  eif = EIF(a,z,p_a,pi_1,pi_0,p_z,p_az,phi_1,phi_0,psi,p_Y_0,plugin)
+  p_o = eif + plugin
+  eif
   
 }
 
