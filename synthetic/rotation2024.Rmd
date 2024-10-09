@@ -7,6 +7,9 @@ output: html_notebook
 
 ```{r}
 rm(list = ls())
+source("cust_fun.R")
+source("cust_MySL.R")
+
 library(ggplot2)
 library(MASS)
 library(splines)
@@ -40,7 +43,7 @@ cate_hat_mat$N = n_vec
 # x_new = seq(from = -1, to = 1, by = 0.1) 
 # n_new = length(x_new)
 # df_new = data.frame(X=x_new)
-datagen_N = function(n){
+single_gen = function(n){
     # Covariates:
     x1 <- runif(n,0,1)
     x2 <- rnorm(n,0,2)
@@ -97,26 +100,12 @@ datagen_N = function(n){
     ATT <-  sum(a*mu1z-a*mu0z)/sum(a) 
     df <- data.frame(X1=x1,X2=x2,Y=y,Z=z,A=a,Y1 = mu1z, Y0 = mu0z)
 
-    return(df)
-  
-}
-
-for (i in 1:nsim){
-  n = n_vec[i]
-  n = 10000
-  print(n)
-  
-  
- 
-  
-  
-  ##models
+    return(list(data = df, att = ATT))
+  }
+##models
   nuisance_models = function(y, x, a, z){
-    
     model_z = SuperLearner(Y = z, X = data.frame(x), family = binomial(),SL.library = "SL.glmnet")
     model_a = SuperLearner(Y = a, X = data.frame(x,Z=z), family = binomial(),SL.library = "SL.glmnet")
-    
-    
     model_y_za = SuperLearner(Y = y,
                               X = data.frame(x,Z=z,A=a),
                               family = gaussian(),
@@ -126,9 +115,6 @@ for (i in 1:nsim){
                              family = gaussian(),
                              SL.library = "SL.glmnet")
     
-    
-    
-
     #for phi_1
     Ey_a1i1 = predict(model_y_za, data.frame(x,Z=1,A=1), onlySL = TRUE)[[1]]
     
@@ -154,9 +140,6 @@ for (i in 1:nsim){
     psi = (Ey_i1 - Ey_i0-phi_1)/(pi_1-pi_0)
     p_Y_0 = p_Y - a*psi - z*phi_1
     
-    
-
-    
     return(data.frame(list(Pi_1 = pi_1,
                 Pi_0 = pi_0,
                 Phi_1 = phi_1,
@@ -167,22 +150,118 @@ for (i in 1:nsim){
                 P_az = p_az*p_z)))
   }
   
+  EIF = function(a,z,p_a,pi_1,pi_0,p_z,p_az,phi_1,phi_0,psi,p_Y_0,plugin){
+    #plugin: E(psi|A=1)
+    # y = Outcome
+    # z = IV
+    # a = Treatment
+    # fz = P(Z=1)(L)
+    # faz = P(A=1,Z=1)(L)
+    # pi_1 = P(A=1|Z=1)(L)
+    # pi_0 = P(A=1|Z=0)(L)
+    # phi_1 = E(Y|A=1,Z=1) - E(Y|A=1,Z=0)(L)
+    # phi_0 = E(Y|A=1,Z=0)(L)
+    # psi = E([G(Y - phi_1) - (1-G)Y]/delta_a)(L)
+    # p_Y_0 = E(Y - Apsi - Gphi_1)(L)
+    # plugin = ATT
+    ### p_a = P(A=1)
+    delta_a = pi_1-pi_0
+
+    nu_1 = pi_1/p_a*(2*z-1)/p_z/delta_a
+    nu_2 = y - a*psi - z*phi_1 - p_Y_0
+    nu_3 = pi_1/p_a*a*(2*z-1)/p_az/delta_a
+    nu_4 = y - z*phi_1 - phi_0
+    nu_5 = (a/p_a)*(psi-plugin)
+    
+    return(nu_1*nu_2 - nu_3*nu_4 + nu_5)
+  }
   
-  # y = Outcome
-  # z = IV
-  # a = Treatment
-  # fz = P(Z=1)(L)
-  # faz = P(A=1,Z=1)(L)
-  # pi_1 = P(A=1|Z=1)(L)
-  # pi_0 = P(A=1|Z=0)(L)
-  # phi_1 = E(Y|A=1,Z=1) - E(Y|A=1,Z=0)(L)
-  # phi_0 = E(Y|A=1,Z=0)(L)
-  # psi = E([G(Y - phi_1) - (1-G)Y]/delta_a)(L)
-  # p_Y_0 = E(Y - Apsi - Gphi_1)(L)
-  # plugin = ATT
-  ### p_a = P(A=1)
+
   
   
+single_run_simulation = function(N,nc=3, fold_num = 1, CV,seed = NULL, k=4, 
+                                 bs= 'bs',choice=c(1,5,7), raw = F){
+  if(is.null(seed)){
+    set.seed(seed)
+  }
+  generated = single_gen(N)
+  current_df = generated[1]
+  att = generated[2]
+   
+  y = current_df$Y
+  a = current_df$A
+  z = current_df$Z
+  x1 = current_df$X1
+  x2 = current_df$X2
+  s <- rep(1:nc, each=N/nc)
+  
+  y1 = current_df$Y1
+  y0 = current_df$Y0
+  
+  data_input = data.frame(x1,x2,a,z,y,s)
+  
+  att = 4
+  
+  res_list = rep(list(NA), fold_num)
+  bias_list = rep(list(NA), fold_num)
+  var_list = rep(list(NA), fold_num)
+  
+  
+  # Median adjustment in case the estimators blow up.
+  for(j in 1:fold_num){
+    data_input <- data_input[sample(N), ]
+    data_input$s = s
+    
+    result_single = three_fold_eval(data_input, CV=CV, k=k, bs = bs, choice=choice)
+    res_list[[j]] = result_single
+    bias_list[[j]] = as.data.frame(lapply(result_single, function(x) mean(x)))
+    var_list[[j]] = as.data.frame(lapply(result_single, function(x) var_compute(x,data_input$a,data_input$s,nc)))
+  }
+  
+  
+  #take median of bias list
+  bias_single = apply(do.call(rbind, bias_list), 2, median, na.rm = TRUE) - att
+  var_single = var_compute_m(bias_list, var_list)
+
+  
+  ### implement a variance calculation
+  
+  # Save all these results
+  tmp = data.frame(N=N,
+                   bias_fw = bias_single[1],
+                   bias_wald = bias_single[2],
+                   var_fw = var_single[1],
+                   var_wald = var_single[2]
+  )
+  return(tmp)
+}
+
+generated = single_gen(N)
+current_df = generated[1]
+att = generated[2]
+ 
+y = current_df$Y
+a = current_df$A
+z = current_df$Z
+x1 = current_df$X1
+x2 = current_df$X2
+s <- rep(1:nc, each=N/nc)
+
+y1 = current_df$Y1
+y0 = current_df$Y0
+
+data_input = data.frame(x1,x2,a,z,y,s)
+three_fold_eval(data_input, CV=T, k=3, bs = 'bs', choice=c(1,2,3,4,5,6,7))
+# r1 = single_run_simulation(N=300,CV=T,k=3,choice=c(1,2,3,4,5,6,7))
+
+
+```
+
+
+```{r}
+for (i in 1:nsim){
+  n = n_vec[i]
+  print(n)
   nuisance = nuisance_models(y, x, a, z)
   
   p_a = mean(a)
@@ -194,28 +273,15 @@ for (i in 1:nsim){
   phi_0 = nuisance$Phi_0
   psi = nuisance$Psi
   p_Y_0 = nuisance$P_Y_0
+  
+  # Not sure 100% but pretty sure this is a valid ATT estimator using psi?
   plugin = mean(a/p_a*psi)
-
-  EIF = function(a,z,p_a,pi_1,pi_0,p_z,p_az,phi_1,phi_0,psi,p_Y_0,plugin){
-    #plugin: E(psi|A=1)
-    #(fz,faz,pi_1,pi_0,phi_1,phi_0,psi,p_Y_0)
-    delta_a = pi_1-pi_0
-
-    nu_1 = pi_1/p_a*(2*z-1)/p_z/delta_a
-    nu_2 = y - a*psi - z*phi_1 - p_Y_0
-    nu_3 = pi_1/p_a*a*(2*z-1)/p_az/delta_a
-    nu_4 = y - z*phi_1 - phi_0
-    nu_5 = (a/p_a)*(psi-plugin)
-    
-    return(nu_1*nu_2 - nu_3*nu_4 + nu_5)
-  } 
 
   eif = EIF(a,z,p_a,pi_1,pi_0,p_z,p_az,phi_1,phi_0,psi,p_Y_0,plugin)
   p_o = eif + plugin
   eif
   
 }
-
 ```
 
 
