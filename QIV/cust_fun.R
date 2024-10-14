@@ -295,7 +295,7 @@ three_fold_eval = function(data_input, CV = F, k=4, bs = 'bs', choice = c(1,7)){
                                                       p1,p0,e1,e0,delta_a_inv_pred, delta_pred)) / mean(a[s==pred])
     estimate_IF_fw2 = with(nuisance_df_two_step, IF_fw2(y[s==pred],a[s==pred],z[s==pred],
                                                         p1,p0,e1,e0,delta_a_inv_pred, delta_pred)) / mean(a[s==pred])
-
+    
     # estimate_IF_fw = 0
     return(data.frame(estimate_wald,
                       estimate_IF,
