@@ -165,7 +165,6 @@ my_fw_aux = function(data_train, aux, data_pred, bs = "bs", k = 4, choice = c(1,
   n_aux = dim(aux)[1]
   n_pred = dim(data_pred)[1]
   
-  # use nuisance_df1 to construct the pseudo outcome
   SL_res = my_SL(data_train, rbind(aux,data_pred), choice = choice)
   df_aux = SL_res[1:n_aux,]
   df_pred = SL_res[ (n_aux+1):(n_aux+n_pred), ]

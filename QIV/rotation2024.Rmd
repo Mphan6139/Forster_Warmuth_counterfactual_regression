@@ -30,7 +30,7 @@ set.seed(1)
 # x_new = seq(from = -1, to = 1, by = 0.1) 
 # n_new = length(x_new)
 # df_new = data.frame(X=x_new)
-single_gen_QIV = function(n,nc=3){
+single_gen_QIV = function(n){
   
   ###
   # Simulation Parameters 10/10
@@ -46,7 +46,7 @@ single_gen_QIV = function(n,nc=3){
   x2 <- rnorm(n,0,2)
   x <- cbind(x1,x2)
   u <- rnorm(n,0,1)
-  s <- rep(1:nc, each=n/nc)
+  
   ### Correlated
   # ux <- MASS::mvrnorm(n, mu = c(0,0), Sigma = matrix(c(1,0.5,0.5,1),2,2))
   ###
@@ -96,7 +96,7 @@ single_gen_QIV = function(n,nc=3){
   mu1z <- p_2(Z=z,U=u,A=rep(1,n),X=x) + error
   mu0z <- p_2(Z=z,U=u,A=rep(0,n),X=x) + error
   ATT <-  sum(a*mu1z-a*mu0z)/sum(a) 
-  df <- data.frame(x1,x2,y,z,a,s)
+  df <- data.frame(x1,x2,y,z,a)
   
   return(list(data = df, att = ATT))
 }
@@ -138,7 +138,17 @@ my_SL_QIV = function(data_train, data_pred, choice = c(1,7)){
   # Model of E(A|Z,X)
   model_a_z = MySL(Data = data_train,              # training dataset
                  locY = 5,                         # response variable A = column 5
-                 locX = c(1,2,4),                  # explanatory variable X1,X2
+                 locX = c(1,2,4),                  # explanatory variable X1,X2,Z
+                 Ydist = binomial(),               # A is binary
+                 SL.list = SL.hpara$SLL,           # Machine learning algorithms
+                 MTRY = SL.hpara$MTRY,        
+                 MLPL = SL.hpara$MLPL,
+                 NMN = SL.hpara$NMN,
+                 MLPdecay = SL.hpara$MLPdecay)
+  # Model of E(A|X)
+  model_a_x = MySL(Data = data_train,              # training dataset
+                 locY = 5,                         # response variable A = column 5
+                 locX = c(1,2),                    # explanatory variable X1,X2
                  Ydist = binomial(),               # A is binary
                  SL.list = SL.hpara$SLL,           # Machine learning algorithms
                  MTRY = SL.hpara$MTRY,        
@@ -165,8 +175,48 @@ my_SL_QIV = function(data_train, data_pred, choice = c(1,7)){
                  MLPL = SL.hpara$MLPL,
                  NMN = SL.hpara$NMN,
                  MLPdecay = SL.hpara$MLPdecay)
+  
+  # for delta_a
+  
+  # for psi
+  nuissance_X = function(X){
+    pi_1 = predict(model_a_z, data.frame(X,z=1))[[1]]
+    pi_0 = predict(model_a_z, data.frame(X,z=0))[[1]]
+  
+    Ey_a1z1 = predict(model_y_za, data.frame(X,z=1,a=1))[[1]]
+    phi_0 = predict(model_y_za, data.frame(X,z=0,a=1))[[1]]
+    phi_1 = Ey_a1z1-phi_0
+    Ey_z1 = predict(model_y_z, data.frame(X,z=1))[[1]]
+    Ey_z0 = predict(model_y_z, data.frame(X,z=0))[[1]]
+    psi = (Ey_z1 - Ey_z0-phi_1)/(pi_1-pi_0)
+    return(data.frame(psi,phi_1,phi_0,pi_1,pi_0))
+  }
+  nuis = nuissance_X(data_pred[,1:2])
+  phi_1 = nuis$phi_1
+  phi_0 = nuis$phi_0
+  psi = nuis$psi
+  pi_1 = nuis$pi_1
+  pi_0 = nuis$pi_0
+ 
+  
+  
+  #for EIF
+  z = data_pred[[4]]
+  a = data_pred[[5]]
+  # model this later
+  p_z = z*0.5 + (1-z)*0.5
+  # P(A,Z|X) = P(Z=1)P(A|Z=1,X) +P(Z=0)P(A|Z=0,X) 
+  p_ax = predict(model_a_x, data.frame(data_pred[,1:2]), onlySL = TRUE)[[1]]
+  
+  # Conditionally independent under X
+  p_az = p_ax*p_z
+  
+  nuis_train = nuissance_X(data_train[,1:2])
+  train_psi = nuis_train$psi
+  train_phi_1 = nuis_train$phi_1
+  data_train$y_p = data_train$y - data_train$a*train_psi - data_train$z*train_phi_1
   model_y   =  MySL(Data = data_train,             # training dataset
-                 locY = 3,                         # response variable Y = column 3
+                 locY = 7,                         # response variable Y-A*psi-Z*phi_1 = column 3
                  locX = c(1,2),                # explanatory variable X1,X2
                  Ydist = gaussian(),               # Y is continuous
                  SL.list = SL.hpara$SLL,           # Machine learning algorithms
@@ -174,34 +224,8 @@ my_SL_QIV = function(data_train, data_pred, choice = c(1,7)){
                  MLPL = SL.hpara$MLPL,
                  NMN = SL.hpara$NMN,
                  MLPdecay = SL.hpara$MLPdecay)
-  # for delta_a
-  pi_1 = predict(model_a_z, data.frame(data_pred[,1:2],z=1) , onlySL = TRUE)[[1]]
-  pi_0 = predict(model_a_z, data.frame(data_pred[,1:2],z=0) , onlySL = TRUE)[[1]]
-  
-  # for psi
-  Ey_z1 = predict(model_y_z, data.frame(data_pred[,1:2],z=1), onlySL = TRUE)[[1]]
-  Ey_z0 = predict(model_y_z, data.frame(data_pred[,1:2],z=0), onlySL = TRUE)[[1]]
-  
-  #for phi_1
-  Ey_a1z1 = predict(model_y_za, data.frame(data_pred[,1:2],z=1,a=1), onlySL = TRUE)[[1]]
-  phi_0 = predict(model_y_za, data.frame(data_pred[,1:2],z=0,a=1), onlySL = TRUE)[[1]]
-  
-  #for p_Y_0
-  p_Y = predict(model_y, data.frame(data_pred[,1:2]), onlySL = TRUE)[[1]]
-  
- 
-  
-  
-  #for EIF
-  z = data_pred[[4]]
-  a = data_pred[[5]]
-  p_z = z*0.5 + (1-z)*0.5
-  # P(A|Z,X) = ZP(A|Z=1,X) +(1-Z)P(A|Z=0|X) 
-  p_az = p_z*(z*pi_1 + (1-z)*pi_0)
-  
-  phi_1 = Ey_a1z1-phi_0
-  psi = (Ey_z1 - Ey_z0-phi_1)/(pi_1-pi_0)
-  p_Y_0 = p_Y - data_pred$a*psi - data_pred$z*phi_1
+  p_Y_0 = predict(model_y, data.frame(data_pred[,1:2]))[[1]]
+
   df_ = data.frame(pi_1,
               pi_0,
               phi_1,
@@ -209,13 +233,14 @@ my_SL_QIV = function(data_train, data_pred, choice = c(1,7)){
               psi,
               p_Y_0,
               p_z,
+              p_ax,
               p_az)
   return(cbind(data_pred,df_))
 }
 
 
 
-construct_pseudo_QIV = function(y,a,z,p_a,pi_1,pi_0,p_z,p_az,phi_1,phi_0,psi,p_Y_0, EIF=FALSE){
+construct_pseudo_QIV = function(y,a,z,p_a,pi_1,pi_0,p_z,p_ax,p_az,phi_1,phi_0,psi,p_Y_0, EIF=FALSE){
   #wald: E(psi|A=1)
   # y = Outcome
   # z = IV
@@ -232,14 +257,9 @@ construct_pseudo_QIV = function(y,a,z,p_a,pi_1,pi_0,p_z,p_az,phi_1,phi_0,psi,p_Y
   p_a = mean(a)
   delta_a = pi_1-pi_0
   wald =  mean(a/p_a*psi)
-  
-  # Check math but hope this works?
-  
-  p_a_x = (z*pi_1 + (1-z)*pi_0)
-  
-  nu_1 = p_a_x/p_a*(2*z-1)/p_z/delta_a
+  nu_1 = p_ax/p_a*(2*z-1)/p_z/delta_a
   nu_2 = y - a*psi - z*phi_1 - p_Y_0
-  nu_3 = p_a_x/p_a*a*(2*z-1)/p_az/delta_a
+  nu_3 = p_ax/p_a*a*(2*z-1)/p_az/delta_a
   nu_4 = y - z*phi_1 - phi_0
   nu_5 = (a/p_a)*(psi-wald)
     
@@ -255,11 +275,15 @@ my_fw_QIV = function(data_train, data_pred, bs = "bs", k = 4, choice = c(1,7), C
   n_train = dim(data_train)[1]
   n_pred = dim(data_pred)[1]
   s = rep(1:2, each=n_train/2)
+  df_nuisance_1 = my_fw_aux_QIV(data_train = data_train[s==1,],
+                                aux = data_train[s==2,],
+                                data_pred = data_pred, 
+                                CV = CV, k = k, bs=bs, choice = choice)
   
-  df_nuisance_1 = my_fw_aux_QIV(data_train = data_train[s==1,], aux = data_train[s==2,],
-                            data_pred = data_pred, CV = CV, k = k, bs=bs, choice = choice)
-  df_nuisance_2 = my_fw_aux_QIV(data_train = data_train[s==2,], aux = data_train[s==1,],
-                            data_pred = data_pred, CV = CV, k = k, bs=bs, choice = choice)
+  df_nuisance_2 = my_fw_aux_QIV(data_train = data_train[s==2,], 
+                                aux = data_train[s==1,],
+                                data_pred = data_pred, 
+                                CV = CV, k = k, bs=bs, choice = choice)
   df_nuisance = (df_nuisance_1 + df_nuisance_2)/2
   return(df_nuisance)
 }
@@ -279,34 +303,35 @@ my_fw_aux_QIV = function(data_train, aux, data_pred, bs = "bs", k = 4, choice = 
   # df_grid = NULL
   
   
-  n_train = dim(data_train_)[1]
-  n_aux = dim(aux_)[1]
-  n_pred = dim(data_pred_)[1]
+  n_train = dim(data_train)[1]
+  n_aux = dim(aux)[1]
+  n_pred = dim(data_pred)[1]
   
   # use nuisance_df1 to construct the pseudo outcome
-  SL_res = my_SL_QIV(data_train_, rbind(aux_,data_pred_), choice = choice)
+  SL_res = my_SL_QIV(data_train, rbind(aux,data_pred), choice = choice)
   df_aux = SL_res[1:n_aux,]
   df_pred = SL_res[ (n_aux+1):(n_aux+n_pred), ]
 
-
-  pseudo_wald_if = construct_pseudo_QIV(y = aux_$y,
-                                        a = aux_$a,
-                                        z = aux_$z,
+  pseudo_wald_if = construct_pseudo_QIV(y = df_aux$y,
+                                        a = df_aux$a,
+                                        z = df_aux$z,
                                         pi_1 = df_aux$pi_1,
                                         pi_0 = df_aux$pi_0,
                                         p_z = df_aux$p_z,
+                                        p_ax = df_aux$p_ax,
                                         p_az = df_aux$p_az,
                                         phi_1 = df_aux$phi_1,
                                         phi_0 = df_aux$phi_0,
                                         psi = df_aux$psi,
                                         p_Y_0 = df_aux$p_Y_0
                                         )
-  if_qiv = construct_pseudo_QIV(y = aux_$y,
-                                a = aux_$a,
-                                z = aux_$z,
+  if_qiv = construct_pseudo_QIV(y = df_aux$y,
+                                a = df_aux$a,
+                                z = df_aux$z,
                                 pi_1 = df_aux$pi_1,
                                 pi_0 = df_aux$pi_0,
                                 p_z = df_aux$p_z,
+                                p_ax = df_aux$p_ax,
                                 p_az = df_aux$p_az,
                                 phi_1 = df_aux$phi_1,
                                 phi_0 = df_aux$phi_0,
@@ -332,6 +357,7 @@ my_fw_aux_QIV = function(data_train, aux, data_pred, bs = "bs", k = 4, choice = 
   pi_1 = df_pred$pi_1
   pi_0 = df_pred$pi_0
   p_z = df_pred$p_z
+  p_ax = df_pred$p_ax
   p_az = df_pred$p_az
   phi_1 = df_pred$phi_1
   phi_0 = df_pred$phi_0
@@ -339,35 +365,38 @@ my_fw_aux_QIV = function(data_train, aux, data_pred, bs = "bs", k = 4, choice = 
   p_Y_0 = df_pred$p_Y_0
   att_pred = series_df_cust(basis_train, pseudo_wald_if, basis_pred, type = "forster")[[1]]
 
-  nuisance_df = data.frame(y,a,z,pi_1,pi_0,p_z,p_az,phi_1,phi_0,psi,p_Y_0,if_qiv,pseudo_wald_if,att_pred)
+  nuisance_df = data.frame(y,a,z,pi_1,pi_0,p_z,p_ax,p_az,phi_1,phi_0,psi,p_Y_0,if_qiv,pseudo_wald_if,att_pred)
   return(nuisance_df)
 }
-Data = single_gen_QIV(n=900)[[1]]
-data_train_ = Data[Data$s==1,]
-aux_ = Data[Data$s==2,]
-data_pred_ = Data[Data$s==3,]
+
+```
+
+```{r}
+# Data = single_gen_QIV(n=900)[[1]]
+# data_train_ = Data[Data$s==1,]
+# data_pred_ = Data[Data$s==3,]
 
 
-sim_SL = my_SL_QIV(data_train_,data_pred_)
+# # Wald-estimand based estimator 
+# mean(sim_1$psi*sim_1$a/mean(sim_1$a))
+# # EIF based on proof (should be mean 0)
+# mean(sim_1$if_qiv)
+# # FW based on Psuedo-outcome from Wald Efficient Influence Function
+# mean(sim_1$att_pred)
+
+```
 
 
-# NOT cross-validated
-sim_1 = my_fw_aux_QIV(data_train_,aux_,data_pred_)
-# Wald-estimand based estimator 
-mean(sim_1$psi)
-# EIF based on proof
-mean(sim_1$if_qiv)
-# FW based on Psuedo-outcome from Wald Efficient Influence Function
-mean(sim_1$pseudo_wald_if)
-mean(sim_1$att_pred)
+
+```{r}
 
 three_fold_eval = function(data_input, CV = F, k=4, bs = 'bs', choice = c(1,7)){
-  y_ = data_input$Y
-  a_ = data_input$A
-  z_ = data_input$Z
-  x1_ = data_input$X1
-  x2_ = data_input$X2
-  s_ = data_input$S
+  y_ = data_input$y
+  a_ = data_input$a
+  z_ = data_input$z
+  x1_ = data_input$x1
+  x2_ = data_input$x2
+  s_ = data_input$s
   
   Data = data.frame(x1=x1_,x2=x2_,y=y_,z=z_,a=a_,s=s_)
 
@@ -383,14 +412,15 @@ three_fold_eval = function(data_input, CV = F, k=4, bs = 'bs', choice = c(1,7)){
     train_2 = combination[2]
     pred = combination[3]
     
-    nuisance_df_one_step = my_SL(data_train = Data[s==train_1 | s==train_2,],
-                                 data_pred = Data[s==pred,], choice = choice)
-    nuisance_df_two_step = my_fw(data_train = Data[s==train_1 | s==train_2,],
-                                 data_pred = Data[s==pred,], CV = CV, k = k, 
-                                 bs=bs, choice =choice)
+    nuisance_df_one_step = my_SL_QIV(data_train = Data[s_==train_1 | s_==train_2,],
+                                 data_pred = Data[s_==pred,], choice = choice)
+    nuisance_df_two_step = my_fw_QIV(data_train = Data[s_==train_1 | s_==train_2,],
+                                 data_pred = Data[s_==pred,], CV = CV, k = k, 
+                                 bs=bs, choice = choice)
     
-    estimate_wald = with(nuisance_df_one_step,(psi * a[s==pred]  / mean(a[s==pred])))
-    estimate_FW = with(nuisance_df_two_step, )
+    estimate_wald = nuisance_df_one_step$psi*nuisance_df_one_step$a/mean(nuisance_df_one_step$a)
+
+    estimate_FW = nuisance_df_two_step$att_pred
     
      
     return(data.frame(estimate_wald,
@@ -409,28 +439,20 @@ three_fold_eval = function(data_input, CV = F, k=4, bs = 'bs', choice = c(1,7)){
   return(pred_res)
 }
   
+
+
+
   
 single_run_simulation = function(N,nc=3, fold_num = 1, CV,seed = NULL, k=4, bs= 'bs',choice=c(1,5,7), raw = F){
   if(is.null(seed)){
     set.seed(seed)
   }
-  generated = single_gen(N)
-  current_df = generated[1]
-  att = generated[2]
-   
-  y = current_df$Y
-  a = current_df$A
-  z = current_df$Z
-  x1 = current_df$X1
-  x2 = current_df$X2
+  generated = single_gen_QIV(N)
+  
+  data_input = generated[[1]]
+  att = generated[[2]]
   s <- rep(1:nc, each=N/nc)
-  
-  y1 = current_df$Y1
-  y0 = current_df$Y0
-  
-  data_input = data.frame(x1,x2,a,z,y,s)
-  
-  att = 4
+  data_input$s = s
   
   res_list = rep(list(NA), fold_num)
   bias_list = rep(list(NA), fold_num)
@@ -466,18 +488,27 @@ single_run_simulation = function(N,nc=3, fold_num = 1, CV,seed = NULL, k=4, bs= 
   return(tmp)
 }
 
+```
 
-#three_fold_eval(data_input, CV=T, k=3, bs = 'bs', choice=c(1,2,3,4,5,6,7))
-# r1 = single_run_simulation(N=300,CV=T,k=3,choice=c(1,2,3,4,5,6,7))
+```{r}
+# three_fold_eval(data_input=Data, CV=T, k=3, bs = 'bs', choice=c(1,2,3,4,5,6,7))
+options(warn=-1)
+r1 = single_run_simulation(N=300,nc=3,CV=T,k=3,choice=c(1,2,3,4,5,6,7))
+options(warn=0)
 
+# 3_fold:
+# estimate_wald estimate_FW
+# 4.156238	3.629972			
+# 4.076869	3.209531			
+# 4.050370	3.551803
 
 ```
+
 
 
 ```{r}
 for (i in 1:nsim){
   n = n_vec[i]
-  print(n)
   nuisance = nuisance_models(y, x, a, z)
   
   p_a = mean(a)
