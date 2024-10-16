@@ -146,15 +146,15 @@ my_SL_QIV = function(data_train, data_pred, choice = c(1,7)){
                  NMN = SL.hpara$NMN,
                  MLPdecay = SL.hpara$MLPdecay)
   # Model of E(A|X)
-  model_a_x = MySL(Data = data_train,              # training dataset
-                 locY = 5,                         # response variable A = column 5
-                 locX = c(1,2),                    # explanatory variable X1,X2
-                 Ydist = binomial(),               # A is binary
-                 SL.list = SL.hpara$SLL,           # Machine learning algorithms
-                 MTRY = SL.hpara$MTRY,        
-                 MLPL = SL.hpara$MLPL,
-                 NMN = SL.hpara$NMN,
-                 MLPdecay = SL.hpara$MLPdecay)
+  # model_a_x = MySL(Data = data_train,              # training dataset
+  #                locY = 5,                         # response variable A = column 5
+  #                locX = c(1,2),                    # explanatory variable X1,X2
+  #                Ydist = binomial(),               # A is binary
+  #                SL.list = SL.hpara$SLL,           # Machine learning algorithms
+  #                MTRY = SL.hpara$MTRY,        
+  #                MLPL = SL.hpara$MLPL,
+  #                NMN = SL.hpara$NMN,
+  #                MLPdecay = SL.hpara$MLPdecay)
   # Model of E(Y|Z,A,X)
   model_y_za = MySL(Data = data_train,             # training dataset
                  locY = 3,                         # response variable Y = column 3
@@ -175,10 +175,15 @@ my_SL_QIV = function(data_train, data_pred, choice = c(1,7)){
                  MLPL = SL.hpara$MLPL,
                  NMN = SL.hpara$NMN,
                  MLPdecay = SL.hpara$MLPdecay)
-  
-  # for delta_a
-  
-  # for psi
+  model_y   =  MySL(Data = data_train,             # training dataset
+                 locY = 3,                         # response variable Y
+                 locX = c(1,2),                # explanatory variable X1,X2
+                 Ydist = gaussian(),               # Y is continuous
+                 SL.list = SL.hpara$SLL,           # Machine learning algorithms
+                 MTRY = SL.hpara$MTRY,        
+                 MLPL = SL.hpara$MLPL,
+                 NMN = SL.hpara$NMN,
+                 MLPdecay = SL.hpara$MLPdecay)
   nuissance_X = function(X){
     pi_1 = predict(model_a_z, data.frame(X,z=1))[[1]]
     pi_0 = predict(model_a_z, data.frame(X,z=0))[[1]]
@@ -205,27 +210,13 @@ my_SL_QIV = function(data_train, data_pred, choice = c(1,7)){
   a = data_pred[[5]]
   # model this later
   p_z = z*0.5 + (1-z)*0.5
-  # P(A,Z|X) = P(Z=1)P(A|Z=1,X) +P(Z=0)P(A|Z=0,X) 
-  p_ax = predict(model_a_x, data.frame(data_pred[,1:2]), onlySL = TRUE)[[1]]
+  # P(A,Z|X) = P(Z=1)P(A|Z=1,X) 
+  p_az = pi_1*p_z + pi_0*(1-p_z)
   
-  # Conditionally independent under X
-  p_az = p_ax*p_z
+  y_L = predict(model_y, data.frame(data_pred[,1:2]))[[1]]
   
-  nuis_train = nuissance_X(data_train[,1:2])
-  train_psi = nuis_train$psi
-  train_phi_1 = nuis_train$phi_1
-  data_train$y_p = data_train$y - data_train$a*train_psi - data_train$z*train_phi_1
-  model_y   =  MySL(Data = data_train,             # training dataset
-                 locY = 7,                         # response variable Y-A*psi-Z*phi_1 = column 3
-                 locX = c(1,2),                # explanatory variable X1,X2
-                 Ydist = gaussian(),               # Y is continuous
-                 SL.list = SL.hpara$SLL,           # Machine learning algorithms
-                 MTRY = SL.hpara$MTRY,        
-                 MLPL = SL.hpara$MLPL,
-                 NMN = SL.hpara$NMN,
-                 MLPdecay = SL.hpara$MLPdecay)
-  p_Y_0 = predict(model_y, data.frame(data_pred[,1:2]))[[1]]
-
+  p_Y_0 = y_L - a*psi - z*phi_1
+  
   df_ = data.frame(pi_1,
               pi_0,
               phi_1,
@@ -238,7 +229,14 @@ my_SL_QIV = function(data_train, data_pred, choice = c(1,7)){
   return(cbind(data_pred,df_))
 }
 
-
+generated = single_gen_QIV(100)
+data_input = generated[[1]]
+att = generated[[2]]
+s = rep(1:2,50)
+data_input$s = s
+nuisance_df = my_SL_QIV(data_train = data_input[s==1,],
+                        data_pred = data_input[s==2,])
+nuisance_df$p_ax
 
 construct_pseudo_QIV = function(y,a,z,p_a,pi_1,pi_0,p_z,p_ax,p_az,phi_1,phi_0,psi,p_Y_0, EIF=FALSE){
   #wald: E(psi|A=1)
@@ -256,19 +254,52 @@ construct_pseudo_QIV = function(y,a,z,p_a,pi_1,pi_0,p_z,p_ax,p_az,phi_1,phi_0,ps
   # plugin = ATT
   p_a = mean(a)
   delta_a = pi_1-pi_0
-  wald =  mean(a/p_a*psi)
+  
   nu_1 = p_ax/p_a*(2*z-1)/p_z/delta_a
   nu_2 = y - a*psi - z*phi_1 - p_Y_0
   nu_3 = p_ax/p_a*a*(2*z-1)/p_az/delta_a
   nu_4 = y - z*phi_1 - phi_0
-  nu_5 = (a/p_a)*(psi-wald)
     
-  if_qiv = (nu_1*nu_2 - nu_3*nu_4 + nu_5)
   if(EIF){
+    wald =  mean(a/p_a*psi)
+    nu_5 = (a/p_a)*(psi-wald)
+    if_qiv = (nu_1*nu_2 - nu_3*nu_4 + nu_5)
     return(if_qiv)
   }
+  nu_6 = (a/p_a)*(psi)
+  
+  
+  return(nu_1*nu_2 - nu_3*nu_4 + nu_6)
+}
 
-  return(if_qiv+wald)
+construct_psi_hat = function(y,a,z,p_a,pi_1,pi_0,p_z,p_ax,p_az,phi_1,phi_0,psi,p_Y_0){
+  #wald: E(psi|A=1)
+  # y = Outcome
+  # z = IV
+  # a = Treatment
+  # fz = P(Z=1)(L)
+  # faz = P(A=1,Z=1)(L)
+  # pi_1 = P(A=1|Z=1)(L)
+  # pi_0 = P(A=1|Z=0)(L)
+  # phi_1 = E(Y|A=1,Z=1) - E(Y|A=1,Z=0)(L)
+  # phi_0 = E(Y|A=1,Z=0)(L)
+  # psi = E([G(Y - phi_1) - (1-G)Y]/delta_a)(L)
+  # p_Y_0 = E(Y - Apsi - Gphi_1)(L)
+  # plugin = ATT
+  p_a = mean(a)
+  delta_a = pi_1-pi_0
+  
+  nu_1 = p_ax/p_a*(2*z-1)/p_z/delta_a
+  nu_2 = y - a*psi - z*phi_1 - p_Y_0
+  nu_3 = p_ax/p_a*a*(2*z-1)/p_az/delta_a
+  nu_4 = y - z*phi_1 - phi_0
+  nu_6 = (a/p_a)*(psi)
+  psi_hat = mean(nu_1*nu_2 - nu_3*nu_4 + nu_6)
+  
+  nu_5 = (a/p_a)*(psi-psi_hat)
+  var_psi_hat = mean((nu_1*nu_2 - nu_3*nu_4 + nu_5)^2)
+  
+  return(c(psi_hat,var_psi_hat))
 }
 
 my_fw_QIV = function(data_train, data_pred, bs = "bs", k = 4, choice = c(1,7), CV = F, df_grid = NULL){
@@ -414,17 +445,34 @@ three_fold_eval = function(data_input, CV = F, k=4, bs = 'bs', choice = c(1,7)){
     
     nuisance_df_one_step = my_SL_QIV(data_train = Data[s_==train_1 | s_==train_2,],
                                  data_pred = Data[s_==pred,], choice = choice)
-    nuisance_df_two_step = my_fw_QIV(data_train = Data[s_==train_1 | s_==train_2,],
-                                 data_pred = Data[s_==pred,], CV = CV, k = k, 
-                                 bs=bs, choice = choice)
+    # nuisance_df_two_step = my_fw_QIV(data_train = Data[s_==train_1 | s_==train_2,],
+    #                              data_pred = Data[s_==pred,], CV = CV, k = k, 
+    #                              bs=bs, choice = choice)
+    # 
+    # This is a marginal estimate (scalar)
+    estimate_wald = mean(nuisance_df_one_step$psi*nuisance_df_one_step$a/mean(nuisance_df_one_step$a))
     
-    estimate_wald = nuisance_df_one_step$psi*nuisance_df_one_step$a/mean(nuisance_df_one_step$a)
+    EIF_est = construct_psi_hat(y = nuisance_df_one_step$y,
+                                a = nuisance_df_one_step$a,
+                                z = nuisance_df_one_step$z,
+                                pi_1 = nuisance_df_one_step$pi_1,
+                                pi_0 = nuisance_df_one_step$pi_0,
+                                p_z = nuisance_df_one_step$p_z,
+                                p_ax = nuisance_df_one_step$p_ax,
+                                p_az = nuisance_df_one_step$p_az,
+                                phi_1 = nuisance_df_one_step$phi_1,
+                                phi_0 = nuisance_df_one_step$phi_0,
+                                psi = nuisance_df_one_step$psi,
+                                p_Y_0 = nuisance_df_one_step$p_Y_0)
+    
 
-    estimate_FW = nuisance_df_two_step$att_pred
+    estimate_EIF = EIF_est[[1]]
+    var_EIF = EIF_est[[2]]
     
      
     return(data.frame(estimate_wald,
-                      estimate_FW))
+                      estimate_EIF,
+                      var_EIF))
     
   }
   
@@ -472,7 +520,7 @@ single_run_simulation = function(N,nc=3, fold_num = 1, CV,seed = NULL, k=4, bs= 
   
   
   #take median of bias list
-  bias_single = apply(do.call(rbind, bias_list), 2, median, na.rm = TRUE) - att
+  bias_single = apply(do.call(rbind, bias_list), 2, median, na.rm = TRUE) 
   var_single = var_compute_m(bias_list, var_list)
 
   
@@ -487,6 +535,60 @@ single_run_simulation = function(N,nc=3, fold_num = 1, CV,seed = NULL, k=4, bs= 
   )
   return(tmp)
 }
+
+
+simple_large_sim = function(N, fold_num = 1){
+  generated = single_gen_QIV(N)
+  s <- rep(1:2, each=N/2)
+  
+  data_input = generated[[1]]
+  att = generated[[2]]
+  data_input$s = s
+
+  
+  res_list = rep(0, fold_num)
+  est_list = rep(0, fold_num)
+  var_list = rep(0, fold_num)
+  
+  
+  for(j in 1:fold_num){
+    data_input <- data_input[sample(N), ]
+    nuisance_df = my_SL_QIV(data_train = data_input[s==1,],
+                            data_pred = data_input[s==2,])
+    estimate_wald = mean(nuisance_df$psi*nuisance_df$a/mean(nuisance_df$a))
+    
+    EIF_est = construct_psi_hat(y = nuisance_df$y,
+                                a = nuisance_df$a,
+                                z = nuisance_df$z,
+                                pi_1 = nuisance_df$pi_1,
+                                pi_0 = nuisance_df$pi_0,
+                                p_z = nuisance_df$p_z,
+                                p_ax = nuisance_df$p_ax,
+                                p_az = nuisance_df$p_az,
+                                phi_1 = nuisance_df$phi_1,
+                                phi_0 = nuisance_df$phi_0,
+                                psi = nuisance_df$psi,
+                                p_Y_0 = nuisance_df$p_Y_0)
+    
+
+    estimate_EIF = EIF_est[[1]]
+    var_EIF = EIF_est[[2]]
+    est_list[j] = estimate_EIF
+    var_list[j] = var_EIF
+  }
+  MC_variance = sum((est_list- mean(est_list))^2)/fold_num
+  A_variance = 0
+  CI = c(est_list - 1.96*sqrt(var_EIF),est_list + 1.96*sqrt(var_EIF))  
+  covarage = sum((CI[1] < att)*(att < CI[2]))/fold_num
+  return(list(bias= mean(est_list-att),
+              med_bias = median(est_list-att),
+              MC_variance = MC_variance,
+              A_variance = A_variance,
+              coverage = coverage))
+  
+}
+
+simple_large_sim(N=100,fold_num = 10)
 
 ```
 
