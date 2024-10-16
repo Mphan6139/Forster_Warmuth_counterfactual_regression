@@ -493,7 +493,7 @@ single_run_simulation = function(N,nc=3, fold_num = 1, CV,seed = NULL, k=4, bs= 
 ```{r}
 # three_fold_eval(data_input=Data, CV=T, k=3, bs = 'bs', choice=c(1,2,3,4,5,6,7))
 options(warn=-1)
-r1 = single_run_simulation(N=300,nc=3,CV=T,k=3,choice=c(1,2,3,4,5,6,7))
+r1 = single_run_simulation(N=2400,nc=3,CV=T,k=3,choice=c(1,2,3,4,5,6,7))
 options(warn=0)
 
 # 3_fold:
