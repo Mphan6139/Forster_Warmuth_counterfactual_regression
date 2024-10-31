@@ -170,15 +170,15 @@ my_SL_QIV = function(data_train, data_pred, choice = c(1,7)){
                  NMN = SL.hpara$NMN,
                  MLPdecay = SL.hpara$MLPdecay)
   # Model of E(Y|Z,X)
-  # model_y_z =  MySL(Data = data_train,             # training dataset
-  #                locY = 3,                         # response variable Y = column 3
-  #                locX = c(1,2,4),                # explanatory variable X1,X2,Z
-  #                Ydist = gaussian(),               # Y is continuous
-  #                SL.list = SL.hpara$SLL,           # Machine learning algorithms
-  #                MTRY = SL.hpara$MTRY,        
-  #                MLPL = SL.hpara$MLPL,
-  #                NMN = SL.hpara$NMN,
-  #                MLPdecay = SL.hpara$MLPdecay)
+  model_y_z =  MySL(Data = data_train,             # training dataset
+                 locY = 3,                         # response variable Y = column 3
+                 locX = c(1,2,4),                # explanatory variable X1,X2,Z
+                 Ydist = gaussian(),               # Y is continuous
+                 SL.list = SL.hpara$SLL,           # Machine learning algorithms
+                 MTRY = SL.hpara$MTRY,
+                 MLPL = SL.hpara$MLPL,
+                 NMN = SL.hpara$NMN,
+                 MLPdecay = SL.hpara$MLPdecay)
   # model_y   =  MySL(Data = data_train,             # training dataset
   #                locY = 3,                         # response variable Y
   #                locX = c(1,2),                # explanatory variable X1,X2
@@ -199,18 +199,20 @@ my_SL_QIV = function(data_train, data_pred, choice = c(1,7)){
   pi_0 = predict(model_a_z, data.frame(X,z=0))[[1]]
   #marginalize Z in A|Z,X
   pa_x = pi_1*pz_x + pi_0*(1-pz_x)
+  f_ax = a*pa_x + (1-a)*(1-pa_x)
   
   Ey_a1z1 = predict(model_y_za, data.frame(X,z=1,a=1))[[1]]
   phi_0 = predict(model_y_za, data.frame(X,z=0,a=1))[[1]]
   phi_1 = Ey_a1z1-phi_0
   #marginalize out A in Y|Z,A. 
-  Ey_z1 = Ey_a1z1*pa_x + predict(model_y_za, data.frame(X,z=1,a=0))[[1]]*(1-pa_x)
-  Ey_z0 = phi_0*pa_x + predict(model_y_za, data.frame(X,z=0,a=0))[[1]]*(1-pa_x) 
+  Ey_z1 = predict(model_y_z, data.frame(X,z=1))[[1]]
+  Ey_z0 = predict(model_y_z, data.frame(X,z=0))[[1]]
   psi = (Ey_z1 - Ey_z0-phi_1)/(pi_1-pi_0)
 
   fz_x = z*pz_x + (1-z)*(1-pz_x)
   pa_zx = predict(model_a_z, data.frame(data_pred[,c(1:2,4)]))[[1]]
-  paz_x = a*pa_zx*fz_x + (1-a)*(1-pa_zx)*fz_x 
+  # fz_x_fake = z*(0.15) + (1-z)*(0.85)
+  paz_x = a*(pa_zx)*fz_x + (1-a)*(1-pa_zx)*fz_x 
   
   #marginalize out z
   y_L = Ey_z1*pz_x + Ey_z0*(1-pz_x)
@@ -263,30 +265,6 @@ construct_psi_hat = function(y,a,z,pi_1,pi_0,pz_x,pa_x,paz_x,phi_1,phi_0,psi,p_Y
   
   return(list(psi_hat,var_psi_hat,eif))
 }
-
-generated = single_gen_QIV(1000)
-data_input = generated[[1]]
-att = generated[[2]]
-s = rep(1:2,50)
-data_input$s = s
-z_ = data_input[s==2,]$z
-a_ = data_input[s==2,]$a
-nuisance_df = my_SL_QIV(data_train = data_input[s==1,],
-                        data_pred = data_input[s==2,])
-eif_test = construct_psi_hat(y=nuisance_df$y,
-                     a=nuisance_df$a,
-                     z=nuisance_df$z,
-                     pi_1=nuisance_df$pi_1,
-                     pi_0=nuisance_df$pi_0,
-                     pz_x=nuisance_df$pz_x,
-                     pa_x=nuisance_df$pa_x,
-                     paz_x=nuisance_df$paz_x,
-                     phi_1=nuisance_df$phi_1,
-                     phi_0=nuisance_df$phi_0,
-                     psi=nuisance_df$psi,
-                     p_Y_0=nuisance_df$p_Y_0
-)
-mean(eif_test[[2]])
 
 
 my_fw_QIV = function(data_train, data_pred, bs = "bs", k = 4, choice = c(1,7), CV = F, df_grid = NULL){
@@ -388,16 +366,6 @@ my_fw_aux_QIV = function(data_train, aux, data_pred, bs = "bs", k = 4, choice = 
 }
 
 ```
-
-```{r}
-# Data = single_gen_QIV(n=900)[[1]]
-# data_train_ = Data[Data$s==1,]
-# data_pred_ = Data[Data$s==3,]
-
-
-
-```
-
 
 ```{r}
 
@@ -582,43 +550,8 @@ sim_4 = simple_large_sim(N=5000,fold_num = 500)
 
 sims_res = list(sim_1,sim_2,sim_3,sim_4)
 
-save(sims_res, file = "./sims")
+save(sims_res, file = "./sims_10_27")
 
-```
-
-```{r}
-# three_fold_eval(data_input=Data, CV=T, k=3, bs = 'bs', choice=c(1,2,3,4,5,6,7))
-options(warn=-1)
-r1 = single_run_simulation(N=2400,nc=3,CV=T,k=3,choice=c(1,2,3,4,5,6,7))
-options(warn=0)
-
-# 3_fold:
-# estimate_wald estimate_FW
-# 4.156238	3.629972			
-# 4.076869	3.209531			
-# 4.050370	3.551803
-
-```
-
-
-
-```{r}
-for (i in 1:nsim){
-  n = n_vec[i]
-  nuisance = nuisance_models(y, x, a, z)
-  
-  p_a = mean(a)
-  pi_1 = nuisance$Pi_1
-  pi_0 = nuisance$Pi_0
-  p_z = nuisance$P_z
-  p_az = nuisance$P_az
-  phi_1 = nuisance$Phi_1
-  phi_0 = nuisance$Phi_0
-  psi = nuisance$Psi
-  p_Y_0 = nuisance$P_Y_0
-
-  
-}
 ```
 
 
