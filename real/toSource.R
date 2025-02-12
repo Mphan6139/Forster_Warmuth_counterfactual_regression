@@ -173,10 +173,7 @@ series_df = function(X,Y,x_pred,df, type = "ls", basis_type = "poly", std=FALSE)
 #'
 #' @param X: (vector) of covariates
 #' @param Y: (vector) vector of responses
-#' @param x_pred: (scalar) covariate value for missing data 
-#' # Note, this means for the FW estimator, we have to run this a LOT
-#' will fix in a later point.
-#' 
+#' @param x_pred: (vector) of covariates for missing data 
 #' @param type: (string) type supplied to series_df 
 #' @param basis_type: (string) basis_type supplies to series_df
 #' @param KK: (Int) Number of iterations to run cross validation

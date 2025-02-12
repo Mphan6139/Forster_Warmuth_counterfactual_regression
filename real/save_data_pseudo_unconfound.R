@@ -3,7 +3,7 @@ set.seed(8123)
 library(randomForest)
 library(SuperLearner)
 source('data_prep.R') #X has all 71 variables
-source('toSource.R')
+source('../toSource.R')
 data_prep(d=71)
 data <- list(A=matrix(A), Y=matrix(Y), Z=Z, W=W, X=X)
 N = length(Y)
