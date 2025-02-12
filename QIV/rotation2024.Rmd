@@ -64,6 +64,7 @@ single_gen_QIV = function(n){
     alpha_u <-function(u){0.1*(u>0)}
     return(p_0*exp(alpha_z*z + alpha_u(u)))
   }
+  # generate p_0 as a function of x (expit) for potentially nonlinear x
   ps_ = ps(z,u)
   a <- rbinom(n,1,ps_);
   
