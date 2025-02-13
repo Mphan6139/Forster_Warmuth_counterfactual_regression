@@ -1,0 +1,317 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+################################################################################
+# Setup:
+# Y = p(X)Z + g(X,A) + e
+# E[e|Z,X] =0
+# Suppose p(X)Z is known, Y_LZ = Y - p(X)Z
+# Y_XZ = g(X,A) + e
+# solve E[ (Y_LZ-g(A,X))*h(Z,X) ] = 0 for any h
+# Target function = g(A,X) with target variable A,X
+# Perturbing function = h(Z,X) with perturbing variable (Z,X)
+################################################################################
+
+
+# Source code from Chan
+source("0.Functions_PMMR.R")
+# QIV source code
+source("QIV_utils.R")
+source("cust_fun.R")
+source("cust_MySL.R")
+library(ggplot2)
+library(MASS)
+library(latex2exp)
+library(SuperLearner)
+
+```
+
+```{r}
+#Simulation Parameters
+N <- 2000
+CF <- 2       # cross fitting fold; just use 2 for computational efficiency
+NumCV <- 5    # number of cross validation fold; 5 or 10
+NumCVRep <- 1 # repetition of CV; just use 1 for computational efficiency 
+```
+
+```{r}
+# Algorithm Parameters
+
+## PMMR regularization parameter
+PL <- -8;      PU <- 0
+## PMMR bandwidth parameter for the target function
+BW.L <- 0;     BW.U <- 3
+
+Para.Grid <- expand.grid(0, 
+                         2,
+                         seq(PL,PU,by=2)) 
+```
+
+
+```{r}
+
+################################################################################
+# Cross-Validation
+################################################################################
+
+CrossVar <- function(PARAMETER,
+                     ss,
+                     subset,
+                     response,
+                     target,
+                     perturb,
+                     diagonal ){
+  
+  P.P <- rep(as.numeric(PARAMETER[1]),2)  # put dimension of perturbing variable (which is Z,L)
+  P.T <- rep(as.numeric(PARAMETER[2]),2)  # put dimension of target variable (which is A,L)
+  Lambda  <- as.numeric(PARAMETER[3])     # regularization parameter
+  
+  RISK <- rep(0,NumCV)
+  
+  for(cv in 1:NumCV){
+    
+    CV.Split.Index <- list()
+    CV.Split.Index[[1]] <- intersect( SS.Index[[ss]][ -CV.Index[[cv]] ],subset)
+    CV.Split.Index[[2]] <- intersect( SS.Index[[ss]][ CV.Index[[cv]] ] ,subset)
+    
+    response.CV  <- list()
+    target.CV    <- list()
+    perturb.CV   <- list()
+    diagonal.CV   <- list()
+    
+    for(cvest in 1:2){
+      response.CV[[cvest]] <- response[CV.Split.Index[[cvest]]]
+      target.CV[[cvest]]   <- target[CV.Split.Index[[cvest]],]
+      perturb.CV[[cvest]]  <- perturb[CV.Split.Index[[cvest]],]
+      diagonal.CV[[cvest]] <- diagonal[CV.Split.Index[[cvest]]]
+    }
+    
+    CV.result <- 
+      FT_PMMR_CV(Y.Train       =response.CV[[1]],
+                 Perturb.Train =perturb.CV[[1]],
+                 Target.Train  =target.CV[[1]],
+                 Diagonal.Train=diagonal.CV[[1]],
+                 Y.Valid       =response.CV[[2]],
+                 Perturb.Valid =perturb.CV[[2]],
+                 Target.Valid  =target.CV[[2]],
+                 Diagonal.Valid=diagonal.CV[[2]],
+                 Perturb.bw    =exp(P.P),
+                 Target.bw     =exp(P.T),
+                 lambda        =exp(Lambda),
+                 NV            =FALSE)
+    
+    RISK[c(cv)] <- c(CV.result$Vstat)
+  }
+  
+  return( mean(RISK) )
+}
+
+
+
+################################################################################
+# Cross-fitting and Cross Validation Sets
+################################################################################
+
+
+SS.Index <- list()
+for(ss in 1:CF){
+  SS.Index[[ss]] <- ((seq(0,N,length=CF+1))[ss]+1):(seq(0,N,length=CF+1)[ss+1])
+} 
+CV.Index <- list()
+CV.CUT <- seq(0,round(N/CF),length=NumCV+1)
+for(cv in 1:NumCV){
+  CV.Index[[cv]] <- ((CV.CUT)[cv]+1):(CV.CUT[cv+1])
+}
+
+if(NumCVRep>1){
+  
+  REORDER <- NULL
+  for(cv in 1:NumCV){
+    REORDER <- rbind(REORDER,((CV.CUT)[cv]+1):(CV.CUT[cv+1]))
+  }
+  for(tt in 2:NumCVRep){
+    SFF <- sapply(1:(N/2/NumCV),function(t){sample(5,5)})
+    for(cv in 1:NumCV){
+      CV.Index[[cv + (tt-1)*NumCV]] <- 
+        sapply(1:(N/2/NumCV),function(t){REORDER[SFF[cv,t],t]})
+    }  
+  }
+}
+# DGP
+generator = single_gen_QIV(N)
+
+Y = generator$data[["Y"]]
+A = generator$data[["A"]]
+Z = generator$data[["Z"]]
+X = generator$data[["X"]]
+phi_1.true = generator$phi_1
+psi.true = generator$psi
+
+
+
+Data <- cbind(Y,A,Z,X)
+colnames(Data) <- c("Y","A","Z","X")
+
+
+### Preliminary estimations
+
+phi_1_est <- function(data_train, data_pred,choice = c(1,7)){
+  SL.hpara <- list()
+  SL.hpara$SLL <- choice
+  # Superlearner basic learning algorithms:
+  # 1: GLM
+  # 2: lasso/ridge
+  # 3: earth
+  # 4: GAM
+  # 5: xgboost
+  # 6: polynomial spline
+  # 7: random forest
+  # 9: gbm
+  # 10: 1-layer MLP
+  SL.hpara$MLPL <- c(1)
+  SL.hpara$MTRY <- c(1)
+  SL.hpara$NMN <- 50
+  SL.hpara$MLPdecay <- 10^c(-1,-3)
+  ###
+  X.pos <- which( substr(colnames(data_train),1,1)=="X" )
+  Z.pos <- which( substr(colnames(data_train),1,1)=="Z" )
+  A.pos <- which( substr(colnames(data_train),1,1)=="A" )
+  Y.pos <- which( substr(colnames(data_train),1,1)=="Y" )
+  
+  data_train = data.frame(data_train)
+  data_pred = data.frame(data_pred)
+  model_y_za = MySL(Data = data_train,    # training dataset
+                 locY = Y.pos,            # response variable Y
+                 locX = c(X.pos,Z.pos,A.pos),       # explanatory variables X,Z,A
+                 Ydist = gaussian(),      # Y is continuous
+                 SL.list = SL.hpara$SLL,  # Machine learning algorithms
+                 MTRY = SL.hpara$MTRY,        
+                 MLPL = SL.hpara$MLPL,
+                 NMN = SL.hpara$NMN,
+                 MLPdecay = SL.hpara$MLPdecay)
+  ###
+  
+  Ey_a1z1 = predict(model_y_za, data.frame("X"=data_pred[[X.pos]],"Z"=1,"A"=1))[[1]]
+  phi_0 = predict(model_y_za, data.frame("X"=data_pred[[X.pos]],"Z"=0,"A"=1))[[1]]
+  phi_1 = Ey_a1z1-phi_0
+  phi_models = list()
+  phi_models[[1]] = phi_0
+  phi_models[[2]] = phi_1
+  return(phi_models)
+}
+
+y_Z <- function(data_train,data_pred){
+  Y.pos <- which( substr(colnames(data_pred),1,1)=="Y" )
+  Z.pos <- which( substr(colnames(data_pred),1,1)=="Z" )
+  Y = data_pred[[Y.pos]]
+  Z = data_pred[[Z.pos]]
+  phi_1 = phi_1_est(data_train,data_pred)[[2]]
+  return(Y - Z*phi_1)
+} 
+
+### Subtracting off the phi1*Z 
+Y[SS.Index[[1]]] = y_Z(data_train =Data[SS.Index[[2]],], data_pred = Data[SS.Index[[1]],])
+Y[SS.Index[[2]]] = y_Z(data_train =Data[SS.Index[[1]],], data_pred = Data[SS.Index[[2]],])
+
+### Begin Minimax for psi and theta
+
+
+
+
+Y.pos <- which( substr(colnames(Data),1,1)=="Y" )
+X.pos <- which( substr(colnames(Data),1,1)=="X" )
+Z.pos <- which( substr(colnames(Data),1,1)=="Z" )
+A.pos <- which( substr(colnames(Data),1,1)=="A" )
+
+AX <- cbind(A,X)
+ZX <- cbind(Z,X)
+
+Y.MM  <- list()
+A.MM  <- list()
+X.MM  <- list()
+Z.MM  <- list()
+AX.MM <- list()
+ZX.MM <- list()
+
+### Cross fitting and Validation
+
+for(ss in 1:CF){
+  Y.MM [[ss]]  <- Y[SS.Index[[ss]] ]
+  A.MM [[ss]]  <- A[SS.Index[[ss]] ]
+  X.MM [[ss]]  <- X[SS.Index[[ss]] ]
+  Z.MM [[ss]]  <- Z[SS.Index[[ss]] ]
+  AX.MM[[ss]]  <- cbind(A.MM[[ss]],X.MM[[ss]])
+  ZX.MM[[ss]]  <- cbind(Z.MM[[ss]],X.MM[[ss]])
+}
+
+
+```
+
+
+```{r}
+### Solving
+Opt.Para.h <- list()
+Opt.Para.h[[1]] <- Opt.Para.h[[2]] <- c(0,1,-2)
+
+h.MM <- list()
+h.predict <- list()
+
+for(ss in 1:CF){
+  
+  h.MM[[ss]] <- 
+    FT_PMMR( Y         =Y.MM[[ss]],
+             Perturb   =ZX.MM[[ss]],
+             Target    =AX.MM[[ss]],
+             Diagonal  =rep(1,length(Y.MM[[ss]])),
+             Perturb.bw=exp(Opt.Para.h[[ss]][1]),
+             Target.bw =exp(Opt.Para.h[[ss]][2]),
+             lambda    =exp(Opt.Para.h[[ss]][3]),
+             NV        =FALSE)
+}
+
+h.predict[[1]] <- function(AX.New.Input){
+  FT_RBF(X     = AX.MM[[1]],
+         X.new = AX.New.Input,
+         bw.median = exp(Opt.Para.h[[1]][2]))%*%h.MM[[1]]$alpha + h.MM[[1]]$intercept
+}
+
+h.predict[[2]] <- function(AX.New.Input){
+  FT_RBF(X     = AX.MM[[2]],
+         X.new = AX.New.Input,
+         bw.median = exp(Opt.Para.h[[2]][2]))%*%h.MM[[2]]$alpha + h.MM[[2]]$intercept
+}
+
+################################################################################
+# Summary
+################################################################################
+
+A1X.MM <- A0X.MM <- AX.MM
+for(ss in 1:CF){
+  A1X.MM[[ss]][,1] <- 1
+  A0X.MM[[ss]][,1] <- 0
+}
+
+h.A1.hat.CF <- h.A0.hat.CF <- rep(0,N)
+for(ss in 1:CF){
+  h.A1.hat.CF[SS.Index[[3-ss]]] <- h.predict[[ss]](A1X.MM[[3-ss]])
+  h.A0.hat.CF[SS.Index[[3-ss]]] <- h.predict[[ss]](A0X.MM[[3-ss]])
+}
+
+psi.Estimate <- h.A1.hat.CF-h.A0.hat.CF
+
+#plot(X,psi.true-psi.Estimate)
+
+mean(psi.true[SS.Index[[1]]]-psi.Estimate[SS.Index[[1]]])
+
+plot(X[SS.Index[[1]]],psi.true[SS.Index[[1]]]-psi.Estimate[SS.Index[[1]]])
+
+```
+
+```{r}
+plot(X[SS.Index[[2]]],psi.true[SS.Index[[2]]]-psi.Estimate[SS.Index[[2]]])
+
+```
+
