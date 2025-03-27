@@ -17,301 +17,213 @@ output: html_notebook
 
 
 # Source code from Chan
-source("0.Functions_PMMR.R")
+
 # QIV source code
 source("QIV_utils.R")
-source("cust_fun.R")
-source("cust_MySL.R")
-library(ggplot2)
-library(MASS)
-library(latex2exp)
-library(SuperLearner)
+
 
 ```
 
-```{r}
-#Simulation Parameters
-N <- 2000
-CF <- 2       # cross fitting fold; just use 2 for computational efficiency
-NumCV <- 5    # number of cross validation fold; 5 or 10
-NumCVRep <- 1 # repetition of CV; just use 1 for computational efficiency 
-```
-
-```{r}
-# Algorithm Parameters
-
-## PMMR regularization parameter
-PL <- -8;      PU <- 0
-## PMMR bandwidth parameter for the target function
-BW.L <- 0;     BW.U <- 3
-
-Para.Grid <- expand.grid(0, 
-                         2,
-                         seq(PL,PU,by=2)) 
-```
 
 
 ```{r}
+library(cubature)
 
-################################################################################
-# Cross-Validation
-################################################################################
-
-CrossVar <- function(PARAMETER,
-                     ss,
-                     subset,
-                     response,
-                     target,
-                     perturb,
-                     diagonal ){
-  
-  P.P <- rep(as.numeric(PARAMETER[1]),2)  # put dimension of perturbing variable (which is Z,L)
-  P.T <- rep(as.numeric(PARAMETER[2]),2)  # put dimension of target variable (which is A,L)
-  Lambda  <- as.numeric(PARAMETER[3])     # regularization parameter
-  
-  RISK <- rep(0,NumCV)
-  
-  for(cv in 1:NumCV){
-    
-    CV.Split.Index <- list()
-    CV.Split.Index[[1]] <- intersect( SS.Index[[ss]][ -CV.Index[[cv]] ],subset)
-    CV.Split.Index[[2]] <- intersect( SS.Index[[ss]][ CV.Index[[cv]] ] ,subset)
-    
-    response.CV  <- list()
-    target.CV    <- list()
-    perturb.CV   <- list()
-    diagonal.CV   <- list()
-    
-    for(cvest in 1:2){
-      response.CV[[cvest]] <- response[CV.Split.Index[[cvest]]]
-      target.CV[[cvest]]   <- target[CV.Split.Index[[cvest]],]
-      perturb.CV[[cvest]]  <- perturb[CV.Split.Index[[cvest]],]
-      diagonal.CV[[cvest]] <- diagonal[CV.Split.Index[[cvest]]]
-    }
-    
-    CV.result <- 
-      FT_PMMR_CV(Y.Train       =response.CV[[1]],
-                 Perturb.Train =perturb.CV[[1]],
-                 Target.Train  =target.CV[[1]],
-                 Diagonal.Train=diagonal.CV[[1]],
-                 Y.Valid       =response.CV[[2]],
-                 Perturb.Valid =perturb.CV[[2]],
-                 Target.Valid  =target.CV[[2]],
-                 Diagonal.Valid=diagonal.CV[[2]],
-                 Perturb.bw    =exp(P.P),
-                 Target.bw     =exp(P.T),
-                 lambda        =exp(Lambda),
-                 NV            =FALSE)
-    
-    RISK[c(cv)] <- c(CV.result$Vstat)
-  }
-  
-  return( mean(RISK) )
-}
-
-
-
-################################################################################
-# Cross-fitting and Cross Validation Sets
-################################################################################
-
-
-SS.Index <- list()
-for(ss in 1:CF){
-  SS.Index[[ss]] <- ((seq(0,N,length=CF+1))[ss]+1):(seq(0,N,length=CF+1)[ss+1])
-} 
-CV.Index <- list()
-CV.CUT <- seq(0,round(N/CF),length=NumCV+1)
-for(cv in 1:NumCV){
-  CV.Index[[cv]] <- ((CV.CUT)[cv]+1):(CV.CUT[cv+1])
-}
-
-if(NumCVRep>1){
-  
-  REORDER <- NULL
-  for(cv in 1:NumCV){
-    REORDER <- rbind(REORDER,((CV.CUT)[cv]+1):(CV.CUT[cv+1]))
-  }
-  for(tt in 2:NumCVRep){
-    SFF <- sapply(1:(N/2/NumCV),function(t){sample(5,5)})
-    for(cv in 1:NumCV){
-      CV.Index[[cv + (tt-1)*NumCV]] <- 
-        sapply(1:(N/2/NumCV),function(t){REORDER[SFF[cv,t],t]})
-    }  
-  }
-}
-# DGP
+# Testing
+N=2000
+nc=2
 generator = single_gen_QIV(N)
+y = generator$y
+a = generator$a
+z = generator$z
+x1 = generator$x1
+x2 = generator$x2
+s <- rep(1:nc, each=N/nc)
 
-Y = generator$data[["Y"]]
-A = generator$data[["A"]]
-Z = generator$data[["Z"]]
-X = generator$data[["X"]]
-phi_1.true = generator$phi_1
-psi.true = generator$psi
-
-
-
-Data <- cbind(Y,A,Z,X)
-colnames(Data) <- c("Y","A","Z","X")
-
-
-### Preliminary estimations
-
-phi_1_est <- function(data_train, data_pred,choice = c(1,7)){
-  SL.hpara <- list()
-  SL.hpara$SLL <- choice
-  # Superlearner basic learning algorithms:
-  # 1: GLM
-  # 2: lasso/ridge
-  # 3: earth
-  # 4: GAM
-  # 5: xgboost
-  # 6: polynomial spline
-  # 7: random forest
-  # 9: gbm
-  # 10: 1-layer MLP
-  SL.hpara$MLPL <- c(1)
-  SL.hpara$MTRY <- c(1)
-  SL.hpara$NMN <- 50
-  SL.hpara$MLPdecay <- 10^c(-1,-3)
-  ###
-  X.pos <- which( substr(colnames(data_train),1,1)=="X" )
-  Z.pos <- which( substr(colnames(data_train),1,1)=="Z" )
-  A.pos <- which( substr(colnames(data_train),1,1)=="A" )
-  Y.pos <- which( substr(colnames(data_train),1,1)=="Y" )
+y1 = generator$y1
+y0 = generator$y0
   
-  data_train = data.frame(data_train)
-  data_pred = data.frame(data_pred)
-  model_y_za = MySL(Data = data_train,    # training dataset
-                 locY = Y.pos,            # response variable Y
-                 locX = c(X.pos,Z.pos,A.pos),       # explanatory variables X,Z,A
-                 Ydist = gaussian(),      # Y is continuous
-                 SL.list = SL.hpara$SLL,  # Machine learning algorithms
-                 MTRY = SL.hpara$MTRY,        
-                 MLPL = SL.hpara$MLPL,
-                 NMN = SL.hpara$NMN,
-                 MLPdecay = SL.hpara$MLPdecay)
-  ###
-  
-  Ey_a1z1 = predict(model_y_za, data.frame("X"=data_pred[[X.pos]],"Z"=1,"A"=1))[[1]]
-  phi_0 = predict(model_y_za, data.frame("X"=data_pred[[X.pos]],"Z"=0,"A"=1))[[1]]
-  phi_1 = Ey_a1z1-phi_0
-  phi_models = list()
-  phi_models[[1]] = phi_0
-  phi_models[[2]] = phi_1
-  return(phi_models)
+Data = data.frame(x1,x2,a,z,y,s)
+
+nuisance_df = QIV_SL(data_train = Data[s==1,],data_pred = Data[s==2,])
+
+
+eval = Data[s==2,]
+
+eval$psi=nuisance_df$psi
+eval$phi=nuisance_df$phi_1
+
+eval$psi_est=generator$psi[s==2]
+eval$phi_est=generator$phi_1[s==2]
+
+ggplot(data = eval) + geom_point(aes(x=x1,y=psi-psi_est))
+
+mean((eval$psi-eval$psi_est)[eval$a==1]**2)
+
+mean(eval$phi[eval$a==1])
+
+
+# ATT from taking counterfactual means over treated
+mean((generator$e_Y1-generator$e_Y0)[generator$a==1]/mean(generator$a==1))
+# ATT from taking mean over psi function
+mean(eval$psi[eval$a==1])
+
+
+
+
+### ATT = ???
+
+### psi(L) = ???
+
+### phi(L) = ??? 
+
+
+integrand = function(x){
+  x1 = x[1]
+  x2 = x[2]
+  y = x1^2 + x2^2
+  return(y) 
 }
-
-y_Z <- function(data_train,data_pred){
-  Y.pos <- which( substr(colnames(data_pred),1,1)=="Y" )
-  Z.pos <- which( substr(colnames(data_pred),1,1)=="Z" )
-  Y = data_pred[[Y.pos]]
-  Z = data_pred[[Z.pos]]
-  phi_1 = phi_1_est(data_train,data_pred)[[2]]
-  return(Y - Z*phi_1)
-} 
-
-### Subtracting off the phi1*Z 
-Y[SS.Index[[1]]] = y_Z(data_train =Data[SS.Index[[2]],], data_pred = Data[SS.Index[[1]],])
-Y[SS.Index[[2]]] = y_Z(data_train =Data[SS.Index[[1]],], data_pred = Data[SS.Index[[2]],])
-
-### Begin Minimax for psi and theta
-
-
-
-
-Y.pos <- which( substr(colnames(Data),1,1)=="Y" )
-X.pos <- which( substr(colnames(Data),1,1)=="X" )
-Z.pos <- which( substr(colnames(Data),1,1)=="Z" )
-A.pos <- which( substr(colnames(Data),1,1)=="A" )
-
-AX <- cbind(A,X)
-ZX <- cbind(Z,X)
-
-Y.MM  <- list()
-A.MM  <- list()
-X.MM  <- list()
-Z.MM  <- list()
-AX.MM <- list()
-ZX.MM <- list()
-
-### Cross fitting and Validation
-
-for(ss in 1:CF){
-  Y.MM [[ss]]  <- Y[SS.Index[[ss]] ]
-  A.MM [[ss]]  <- A[SS.Index[[ss]] ]
-  X.MM [[ss]]  <- X[SS.Index[[ss]] ]
-  Z.MM [[ss]]  <- Z[SS.Index[[ss]] ]
-  AX.MM[[ss]]  <- cbind(A.MM[[ss]],X.MM[[ss]])
-  ZX.MM[[ss]]  <- cbind(Z.MM[[ss]],X.MM[[ss]])
-}
+adaptIntegrate(integrand,lowerLimit = c(0, 0), upperLimit = c(1, 1))
 
 
 ```
 
 
 ```{r}
-### Solving
-Opt.Para.h <- list()
-Opt.Para.h[[1]] <- Opt.Para.h[[2]] <- c(0,1,-2)
+### 
 
-h.MM <- list()
-h.predict <- list()
+# pi_1 = pi_0 =pz_x =pa_x=paz_x= rep(0,N)
+# 
+# split_1 = pAZ_est(data_train =Data[SS.Index[[2]],], data_pred = Data[SS.Index[[1]],])
+# pi_1[SS.Index[[1]]] = split_1[["pi_1"]]
+# pi_0[SS.Index[[1]]] = split_1[["pi_0"]]
+# pz_x[SS.Index[[1]]] = split_1[["pz_x"]]
+# pa_x[SS.Index[[1]]] = split_1[["pa_x"]]
+# paz_x[SS.Index[[1]]] = split_1[["paz_x"]]
+# 
+# split_2 = pAZ_est(data_train =Data[SS.Index[[1]],], data_pred = Data[SS.Index[[2]],])
+# pi_1[SS.Index[[2]]] = split_2[["pi_1"]]
+# pi_0[SS.Index[[2]]] = split_2[["pi_0"]]
+# pz_x[SS.Index[[2]]] = split_2[["pz_x"]]
+# pa_x[SS.Index[[2]]] = split_2[["pa_x"]]
+# paz_x[SS.Index[[2]]] = split_2[["paz_x"]]
+### Plugging in to EIF and taking empirical mean
+#pi_1
+#pi_0
+#pz_x
+#pa_x
+#paz_x
+#phi_1
+#phi_0
+#psi
+#theta
 
-for(ss in 1:CF){
-  
-  h.MM[[ss]] <- 
-    FT_PMMR( Y         =Y.MM[[ss]],
-             Perturb   =ZX.MM[[ss]],
-             Target    =AX.MM[[ss]],
-             Diagonal  =rep(1,length(Y.MM[[ss]])),
-             Perturb.bw=exp(Opt.Para.h[[ss]][1]),
-             Target.bw =exp(Opt.Para.h[[ss]][2]),
-             lambda    =exp(Opt.Para.h[[ss]][3]),
-             NV        =FALSE)
-}
 
-h.predict[[1]] <- function(AX.New.Input){
-  FT_RBF(X     = AX.MM[[1]],
-         X.new = AX.New.Input,
-         bw.median = exp(Opt.Para.h[[1]][2]))%*%h.MM[[1]]$alpha + h.MM[[1]]$intercept
-}
+psi.bias = abs((psi.true-psi)*(A==1))
+phi_1.bias = abs(generator$phi_1 - phi_1)
 
-h.predict[[2]] <- function(AX.New.Input){
-  FT_RBF(X     = AX.MM[[2]],
-         X.new = AX.New.Input,
-         bw.median = exp(Opt.Para.h[[2]][2]))%*%h.MM[[2]]$alpha + h.MM[[2]]$intercept
-}
+###
+pi_1.bias = abs(generator$pi_1- pi_1)
+pi_0.bias = abs(generator$pi_0-pi_0)
+pz_x.bias = abs(generator$pz_x- pz_x)
+pa_x.bias = abs(generator$pa_x- pa_x)
 
-################################################################################
-# Summary
-################################################################################
 
-A1X.MM <- A0X.MM <- AX.MM
-for(ss in 1:CF){
-  A1X.MM[[ss]][,1] <- 1
-  A0X.MM[[ss]][,1] <- 0
-}
+ATT1 = construct_psi_hat(y=Y,a=A,z=Z,pi_1,pi_0,pz_x,pa_x,paz_x,phi_1,phi_0,psi,theta)
+ATT2
 
-h.A1.hat.CF <- h.A0.hat.CF <- rep(0,N)
-for(ss in 1:CF){
-  h.A1.hat.CF[SS.Index[[3-ss]]] <- h.predict[[ss]](A1X.MM[[3-ss]])
-  h.A0.hat.CF[SS.Index[[3-ss]]] <- h.predict[[ss]](A0X.MM[[3-ss]])
-}
+ATT[["att"]]
+ATT.bias = ATT.true-ATT[["att"]]
+ATT.bias
+ATT.true
 
-psi.Estimate <- h.A1.hat.CF-h.A0.hat.CF
 
-#plot(X,psi.true-psi.Estimate)
-
-mean(psi.true[SS.Index[[1]]]-psi.Estimate[SS.Index[[1]]])
-
-plot(X[SS.Index[[1]]],psi.true[SS.Index[[1]]]-psi.Estimate[SS.Index[[1]]])
+mean(psi[A==1]/mean(A==1))
 
 ```
 
 ```{r}
-plot(X[SS.Index[[2]]],psi.true[SS.Index[[2]]]-psi.Estimate[SS.Index[[2]]])
+### Plotting Results
+AZ.factor = as.factor(paste0(A,Z))
+levels(AZ.factor) = c("A0Z0","A0Z1","A1Z0","A1Z1")
+
+
+# Checking Psi
+df.bias = data.frame(A,Z,X,
+                     phi_1.bias,
+                     pi_1.bias,
+                     pi_0.bias,
+                     pz_x.bias,
+                     pa_x.bias,
+                     "AZ"=AZ.factor,
+                     "tt" = ATT[["tt"]])
+df.treated = df.bias[A==1,]
+df.treated["psi.bias"]=psi.bias[A==1]
+
+ggplot(data=df.treated) + geom_point(aes(x=X1,y=psi.bias,color = Z))
+
+
+ggplot(data=df.bias) + geom_point(aes(x=X1,y=tt,color = AZ))
+
+
+# Checking Phi_1
+ggplot(data=df.bias) + geom_point(aes(x=X1,y=phi_1.bias,color=AZ.factor))
+
+# Checking Joint Distributions
+ggplot(data=df.bias) + geom_point(aes(x=X1,y=pi_1.bias,color=AZ.factor))
+ggplot(data=df.bias) + geom_point(aes(x=X1,y=pi_0.bias,color=AZ.factor))
+ggplot(data=df.bias) + geom_point(aes(x=X1,y=pz_x.bias,color=AZ.factor))
+ggplot(data=df.bias) + geom_point(aes(x=X1,y=pa_x.bias,color=AZ.factor))
+
+
+
+# ggplot(data=df.bias) + geom_point(aes(x=X1,y=pz_x),color="red")+ geom_point(aes(x=X1,y=generator$pz_x),color="blue")
+# 
+# 
+# ggplot(data=df.bias) + geom_point(aes(x=X1,y=pi_1),color="red")+ geom_point(aes(x=X1,y=generator$pi_1),color="blue")
+# 
+# 
+# ggplot(data=df.bias) + geom_point(aes(x=X1,y=pi_0),color="red")+ geom_point(aes(x=X1,y=generator$pi_0),color="blue")
+# 
+# ggplot(data=df.bias) + geom_point(aes(x=X1,y=pa_x),color="red")+ geom_point(aes(x=X1,y=generator$pa_x),color="blue")
+
 
 ```
+```{r}
+#EIF 
+df.att = data.frame("psi"=psi.true,"eif" = ATT$EIF,X,A,Z)
+
+ggplot(df.att) + geom_point(aes(x=X1,y=psi))
+```
+
+```{r}
+### Updated DGP from Jiewen 2/19/2025
+# DGP
+library(causalweight)
+
+# Real data
+data(JC)
+tr = JC$trainy1 | JC$trainy2
+Z = JC$assignment
+A = as.numeric(tr)
+#Y = JC$earny4
+Y = log(1+JC$earny4)
+X = JC[,2:29]
+
+# Simulated Data from Jiewen
+
+
+
+```
+
+```{r}
+source("QIV_utils.R")
+
+df.gen = single_gen_QIV(100000)
+
+```
+
+
+
 
