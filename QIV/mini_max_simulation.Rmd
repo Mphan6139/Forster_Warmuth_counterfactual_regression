@@ -224,6 +224,39 @@ df.gen = single_gen_QIV(100000)
 
 ```
 
+```{r}
+library(VeryLargeIntegers)
+n.hypergeom=function(k,N,K,r){
+  numer = as.integer(binom(n=k+r-1,k))*as.integer(binom(n=N-r-k,K-k))
+  denom = as.integer(binom(N,K))
+  return(numer/denom)
+}
+
+hypergeom = function(k,N,K,n){
+  n1 = as.integer(binom(n=K,k=k))
+  n2 = as.integer(binom(n=N-K,k=n-k))
+  denom = as.integer(binom(n=N,k=n))
+  
+  return(n1*n2/denom)
+}
+
+hypergeom(k = 2 , N = 26, K=10, n = 5)
+# 2+r - 1 = 5
+hypergeom(k = 2 , N = 26, K=10, n = 5)*(26 - 10 - 3)/(26-(2 + 4 - 1))
+#N=26
+#K=10
+#k=2
+#r=4
+
+n.hypergeom(k= 2,N = 26 , K = 10, r=4)
+#n= k+r = 2+6
+#success = N-K = 26 - 10 = 16 
+#draw = r-1 = 3
+hypergeom(k= 3 , N = 26, K=16, n = 6)
+
+
+
+```
 
 
 
